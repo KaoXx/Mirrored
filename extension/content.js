@@ -65,7 +65,9 @@
     renderUI();
   }
 
+  // Solo buscamos el vídeo mientras hay sesión: fuera de ella el script no hace nada en la página.
   setInterval(() => {
+    if (!active) return;
     if (!video || !video.isConnected || video.getBoundingClientRect().width === 0) attach(pickVideo());
     else {
       // Si aparece un vídeo mejor (p. ej. tras un anuncio), cámbiate.
@@ -445,6 +447,7 @@
     allControl = !!info.allControl;
     if (info.peers) peers = info.peers;
     clearInterval(heartbeat);
+    if (active && (!video || !video.isConnected)) attach(pickVideo());
     renderUI();
     if (!active) {
       remote = null;
@@ -508,7 +511,6 @@
   }
 
   window.addEventListener('hashchange', checkInvite);
-  attach(pickVideo());
   hello();
   checkInvite();
 })();

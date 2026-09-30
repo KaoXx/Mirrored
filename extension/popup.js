@@ -120,7 +120,13 @@ $('copyLink').onclick = async () => {
   const tab = await chrome.tabs.get(st.tabId);
   const u = new URL(tab.url);
   u.hash = 'mirrored=' + st.code;
-  await navigator.clipboard.writeText(`${u}\n(o únete con el código ${st.code})`);
+  try {
+    await navigator.clipboard.writeText(`${u}\n(o únete con el código ${st.code})`);
+  } catch {
+    // Si el portapapeles no está disponible, mostramos el enlace para copiarlo a mano.
+    $('linkFallback').textContent = u.toString();
+    return;
+  }
   $('copyLink').textContent = '¡Copiado!';
   setTimeout(() => ($('copyLink').textContent = 'Copiar enlace de invitación'), 1500);
 };

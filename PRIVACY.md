@@ -26,6 +26,8 @@ Solo mientras participas en una sesión, la extensión envía al servidor de Mir
 - **No se venden ni se comparten con terceros**, no se usan para publicidad ni para crear perfiles, y
   no se usan para ningún fin distinto de la sincronización.
 - La conexión con el servidor está cifrada (WSS/HTTPS).
+- Como cualquier servidor de internet, el de Mirrored y su proveedor de alojamiento (Render) reciben la
+  dirección IP desde la que te conectas y pueden conservarla en sus registros técnicos.
 
 ## Qué se guarda en tu navegador
 
@@ -36,8 +38,8 @@ Nada de esto sale de tu navegador salvo en los casos descritos arriba.
 ## Lo que la extensión no hace
 
 - No lee ni envía el contenido de las páginas que visitas, tus contraseñas, formularios ni cookies.
-- No registra tu historial de navegación: solo envía la URL de la pestaña en la que has iniciado o te has
-  unido a una sesión, y solo mientras esa sesión está activa.
+- De tu navegación, solo se envía la URL de la pestaña en la que has iniciado o te has unido a una sesión,
+  y solo mientras esa sesión está activa. Las demás pestañas y páginas no se envían nunca.
 - No retransmite ni copia el vídeo: cada persona lo reproduce desde la web original.
 
 ## Contacto

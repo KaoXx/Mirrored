@@ -43,7 +43,9 @@ BUENO SABER
 PRIVACIDAD
 Solo mientras estás en una sesión se envían al servidor de sincronización tu nombre, la dirección de la página del vídeo, el estado del reproductor y los mensajes de chat, y solo para compartirlos con los participantes de esa sesión. Nada se guarda en disco y todo se borra al acabar la sesión. No hay publicidad ni seguimiento.
 
-Código abierto: https://github.com/KaoXx/Mirrored
+Código fuente: https://github.com/KaoXx/Mirrored
+
+Vídeo de ejemplo en las capturas: Big Buck Bunny © Blender Foundation (CC BY 3.0).
 ```
 
 ### Categoría
@@ -103,7 +105,8 @@ El usuario puede ver vídeos en cualquier web de vídeo, y no podemos saber de a
 - [x] **Información personal identificable** — el nombre para mostrar que escribe el usuario.
 - [x] **Comunicaciones personales** — los mensajes de chat de la sesión.
 - [x] **Historial web** — la URL de la página del vídeo durante una sesión.
-- [ ] El resto (salud, finanzas, autenticación, ubicación, actividad del usuario, contenido del sitio web): **sin marcar**.
+- [x] **Actividad del usuario** — las acciones de reproducción (play, pausa, saltos) que se comparten con la sesión.
+- [ ] El resto (salud, finanzas, autenticación, ubicación, contenido del sitio web): **sin marcar**.
 
 Y las tres certificaciones:
 - [x] No vendo ni transfiero los datos de los usuarios a terceros, salvo en los casos de uso aprobados.
