@@ -1,0 +1,14 @@
+{
+  "name": "mirrored-dev",
+  "private": true,
+  "type": "module",
+  "description": "Herramientas de desarrollo de Mirrored: pruebas end-to-end y empaquetado para la Chrome Web Store",
+  "scripts": {
+    "test": "node tests/e2e.mjs",
+    "test:local": "node tests/e2e.mjs --local",
+    "zip": "node scripts/build-zip.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}

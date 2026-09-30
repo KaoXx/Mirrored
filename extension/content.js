@@ -10,6 +10,8 @@
   const DRIFT_ACTION = 0.4; // s de desfase tolerado tras play/pausa/salto
   const BUFFER_REPORT_AFTER = 2000; // ms cargando antes de pedir a los demás que esperen
   const MAX_WAIT = 15000; // ms máximos esperando a alguien que carga
+  const GIVE_UP_COOLDOWN = 30000; // ms sin volver a esperar a alguien tras rendirse con él
+  const STALL_AFTER = 8000; // ms sin datos ni poder reproducir antes de reintentar la descarga
   const REACTIONS = ['😂', '😱', '❤️', '👏', '🔥', '😮', '🙄', '💀'];
 
   let active = false;
@@ -18,12 +20,13 @@
   let allControl = false;
   let peers = [];
   let video = null;
-  let ignoreUntil = 0; // ignora eventos locales provocados por nosotros mismos
+  let ignoreUntil = 0; // justo tras aplicar un estado remoto: la carga que sigue no cuenta como "cargando"
   let remote = null; // { state, at } último estado recibido de quien controla
   let heartbeat = null;
   let pendingClick = false;
   let needsSource = false; // el reproductor aún no ha cargado el vídeo: hace falta que el usuario pulse play
   let sourceGraceUntil = 0; // tras cargar la fuente, el reproductor mueve el vídeo por su cuenta un momento
+  let graceUntilReady = false; // ...y suele repetir su play() cuando llegan los datos: el margen dura hasta entonces
   let resumeFrom = null; // anfitrión que recarga la página: estado de la sala del que continuar
 
   // Espera por carga
@@ -31,8 +34,12 @@
   let autoPaused = false; // anfitrión: pausa puesta por nosotros para esperar a alguien
   let autoAction = false; // el siguiente evento local lo provocamos nosotros al esperar/reanudar
   let waitStart = 0;
-  let waitCooldownUntil = 0;
+  const giveUpUntil = {}; // anfitrión: id → hasta cuándo no volver a esperar a quien ya se esperó sin éxito
   let lastReport = { status: null, at: 0, drift: null };
+
+  // Descarga atascada
+  let stallSince = null; // desde cuándo el vídeo quiere reproducirse y no puede
+  let lastProgressAt = 0; // último evento 'progress' (llegan datos)
 
   // ---------- Elegir el vídeo principal ----------
   function pickVideo() {
@@ -55,13 +62,19 @@
   }
 
   const EVENTS = ['play', 'pause', 'seeked', 'ratechange'];
+  const onProgress = () => (lastProgressAt = Date.now());
 
   function attach(v) {
     if (v === video) return;
-    if (video) EVENTS.forEach((e) => video.removeEventListener(e, onLocalEvent));
+    if (video) {
+      EVENTS.forEach((e) => video.removeEventListener(e, onLocalEvent));
+      video.removeEventListener('progress', onProgress);
+    }
     video = v;
+    stallSince = null;
     if (video) {
       EVENTS.forEach((e) => video.addEventListener(e, onLocalEvent));
+      video.addEventListener('progress', onProgress);
       if (active && remote && role !== 'host') applyRemote('attach');
       if (active && role === 'host') sendState('attach');
     }
@@ -86,9 +99,10 @@
     if (!active || !canControl() || !video || video.readyState === 0) return;
     // Anfitrión recién recargado: hasta que toque el reproductor, su vídeo (en 0) no es la referencia.
     if (resumeFrom && !EVENTS.includes(reason)) return;
-    const state = { time: video.currentTime, paused: video.paused, rate: video.playbackRate, duration: video.duration, reason };
-    // Nuestra propia acción pasa a ser la referencia (en modo "todos controlan").
-    if (reason !== 'heartbeat' && role !== 'host') remote = { state: { ...remote?.state, ...state }, at: Date.now() };
+    const at = Date.now();
+    const state = { time: video.currentTime, paused: video.paused, rate: video.playbackRate, duration: video.duration, reason, at };
+    // Nuestra propia acción pasa a ser la referencia: así sus ecos (eventos colaterales) coinciden con ella.
+    if (reason !== 'heartbeat') remote = { state: { ...remote?.state, ...state }, at };
     chrome.runtime.sendMessage({ type: 'local-state', state }).catch(() => {});
   }
 
@@ -128,7 +142,7 @@
     }
     const target = targetTime();
     if (Math.abs(video.currentTime - target) > tolerance && !(reason === 'heartbeat' && loading)) {
-      expect('seeked');
+      expect('seeked', target);
       video.currentTime = target;
     }
 
@@ -140,6 +154,7 @@
     if (!state.paused && video.paused) {
       expect('play');
       video.play().catch((err) => {
+        expected.play = null; // el 'play' no llegará: que no se trague el siguiente de la persona
         // Solo NotAllowedError es un bloqueo de autoplay. Un AbortError (el play se canceló por un salto
         // o una pausa mientras cargaba) es normal en vídeos lentos y no debe congelar la sincronización.
         if (err?.name !== 'NotAllowedError') return;
@@ -162,23 +177,32 @@
     needsSource = true;
     // Un clic sintético no sirve (los reproductores lo ignoran o hacen play sin fuente): solo llevamos
     // al usuario hasta el vídeo. Cuando aparezca la fuente, el bucle principal resincroniza.
-    toast('Pulsa play en el vídeo para sincronizarte', () => video?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    toast('Pulsa play en el vídeo para sincronizarte', highlightVideo);
   }
 
-  // Eventos que vamos a provocar nosotros al aplicar un estado remoto: el siguiente de cada tipo
-  // se descarta, llegue cuando llegue (en vídeos lentos, un 'seeked' puede tardar segundos).
-  const expected = {};
-  function expect(type) {
-    expected[type] = Date.now() + 20000;
-    ignoreUntil = Date.now() + 400; // margen corto para eventos colaterales del reproductor
+  // ---------- Ecos: eventos que provocamos nosotros ----------
+  // Un evento local es eco (no una acción de la persona) si es el que acabamos de provocar o si deja el
+  // vídeo tal como lo pide el estado de referencia. Así no hace falta ignorar a ciegas un intervalo de
+  // tiempo, y una acción real justo después de un cambio remoto no se pierde.
+  const expected = {}; // tipo → { until, time? }: el siguiente evento de ese tipo es nuestro
+  function expect(type, time) {
+    // En vídeos lentos, un 'seeked' puede tardar segundos en llegar.
+    expected[type] = { until: Date.now() + 20000, time };
+    ignoreUntil = Date.now() + 400; // solo para no confundir el salto recién pedido con una carga lenta
   }
   function wasExpected(type) {
-    if (expected[type] && Date.now() < expected[type]) {
-      expected[type] = 0;
-      return true;
-    }
-    return false;
+    const e = expected[type];
+    if (!e || Date.now() > e.until) return false;
+    expected[type] = null;
+    // Un salto nuestro que se fusionó con otro no debe tragarse un salto posterior de la persona.
+    return e.time == null || Math.abs(video.currentTime - e.time) < 1.5;
   }
+  function matchesRemote() {
+    if (!remote || (role === 'host' && !allControl) || !sameMedia(remote.state)) return false;
+    const s = remote.state;
+    return video.paused === s.paused && Math.abs(video.playbackRate - (s.rate || 1)) < 0.01 && Math.abs(video.currentTime - targetTime()) < DRIFT_ACTION;
+  }
+  const isEcho = (type) => wasExpected(type) || matchesRemote();
 
   // ---------- Eventos locales ----------
   function onLocalEvent(e) {
@@ -187,16 +211,17 @@
       autoAction = false;
       return sendState('auto');
     }
-    if (wasExpected(e.type) || Date.now() < ignoreUntil) return;
+    if (isEcho(e.type)) return;
     if (role === 'host') {
       if (autoPaused) autoPaused = false; // el anfitrión toma el control manualmente
+      for (const id in giveUpUntil) delete giveUpUntil[id]; // acción nueva: vuelve a merecer la pena esperar
       if (resumeFrom && !noSource(video)) {
         // Primera acción tras recargar: seguimos donde iba la sala, no desde el principio del vídeo.
         const { state, at } = resumeFrom;
         resumeFrom = null;
         const t = state.paused ? state.time : state.time + ((Date.now() - at) / 1000) * (state.rate || 1);
         if (Math.abs(video.currentTime - t) > 1 && sameMedia(state)) {
-          expect('seeked');
+          expect('seeked', t);
           video.currentTime = t;
         }
       }
@@ -204,7 +229,7 @@
     }
     if (!remote || !sameMedia(remote.state)) return;
     if (needsSource) return; // el usuario acaba de pulsar play para cargar el vídeo: el bucle lo resincroniza
-    if (Date.now() < sourceGraceUntil) return void setTimeout(() => applyRemote('resnap'), 300);
+    if (Date.now() < sourceGraceUntil || graceUntilReady) return void setTimeout(() => applyRemote('resnap'), 300);
     if (allControl) return sendState(e.type);
     // El invitado ha tocado el reproductor: vuelve a la posición del anfitrión.
     const drifted = Math.abs(video.currentTime - targetTime()) > DRIFT_ACTION || video.paused !== remote.state.paused;
@@ -218,7 +243,7 @@
   function myStatus() {
     if (!video) return { status: 'novideo', drift: null };
     if (role === 'host' || !remote) return { status: 'ok', drift: 0 };
-    if (noSource(video)) return { status: 'novideo', drift: null };
+    if (noSource(video)) return { status: 'needclick', drift: null };
     if (!sameMedia(remote.state)) return { status: 'ad', drift: null };
     if (bufferSince && Date.now() - bufferSince > BUFFER_REPORT_AFTER) return { status: 'buffering', drift: null };
     const drift = video.currentTime - targetTime();
@@ -233,9 +258,14 @@
     if (needsSource && !noSource(video)) {
       needsSource = false;
       sourceGraceUntil = now + 4000;
+      graceUntilReady = true;
       if (ui) ui.toast.className = 'toast';
       applyRemote('source');
     }
+    if (graceUntilReady && video.readyState >= 3) {
+      graceUntilReady = false;
+      sourceGraceUntil = Math.max(sourceGraceUntil, now + 1500);
+    } else if (graceUntilReady && now > sourceGraceUntil + 20000) graceUntilReady = false;
 
     // Invitado: ¿está cargando mientras los demás reproducen?
     if (role !== 'host' && remote && sameMedia(remote.state)) {
@@ -244,17 +274,35 @@
       else if (!bufferSince && !remote.state.paused && now > ignoreUntil) bufferSince = now;
     } else bufferSince = null;
 
+    // Descarga atascada: el vídeo debería avanzar, no puede y hace rato que no llegan datos (a veces una
+    // conexión se queda colgada). Un salto obliga al navegador a abrir una petición nueva. Si llegan datos
+    // aunque sea despacio (red lenta), no se toca: cada salto reiniciaría la carga.
+    // Un invitado que ya estaba cargando cuenta aunque el anfitrión se haya pausado para esperarle.
+    const wantsToPlay = role === 'host' ? !video.paused : !!remote && (!remote.state.paused || !!bufferSince) && sameMedia(remote.state);
+    if (wantsToPlay && !noSource(video) && video.readyState < 3) {
+      if (!stallSince) stallSince = now;
+      else if (now - stallSince > STALL_AFTER && now - lastProgressAt > STALL_AFTER) {
+        stallSince = now;
+        // +1 s: saltar al mismo punto reutiliza la petición colgada; un poco más allá obliga a abrir otra.
+        // El desfase de 1 s lo corrige el siguiente estado del anfitrión.
+        const t = (role === 'host' ? video.currentTime : targetTime()) + 1;
+        expect('seeked', t);
+        video.currentTime = t;
+      }
+    } else stallSince = null;
+
     // Anfitrión: pausa a todos mientras alguien carga (con un máximo).
     if (role === 'host') {
-      const loading = peers.filter((p) => !p.host && p.status === 'buffering');
-      if (loading.length && !video.paused && !autoPaused && now > waitCooldownUntil) {
+      const loading = peers.filter((p) => !p.host && p.status === 'buffering' && !(giveUpUntil[p.id] > now));
+      if (loading.length && !video.paused && !autoPaused) {
         autoPaused = true;
         autoAction = true;
         waitStart = now;
         video.pause();
         toast(`Esperando a ${loading.map((p) => p.name).join(', ')}…`);
       } else if (autoPaused && (!loading.length || now - waitStart > MAX_WAIT)) {
-        if (loading.length) waitCooldownUntil = now + 30000;
+        // Con quien no llegó a tiempo no volvemos a esperar un rato (salvo que el anfitrión haga algo nuevo).
+        for (const p of loading) giveUpUntil[p.id] = now + GIVE_UP_COOLDOWN;
         autoPaused = false;
         if (video.paused) {
           autoAction = true;
@@ -291,7 +339,14 @@
       align-items: flex-end; gap: 6px; }
     .bar, .panel, .bubble, .badge { pointer-events: auto; background: rgba(20,20,28,.85); backdrop-filter: blur(6px);
       border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.35); }
-    .badge { padding: 4px 10px; font-size: 12px; border-radius: 999px; opacity: .9; }
+    .badge { padding: 4px 10px; font-size: 12px; border-radius: 999px; opacity: .9; cursor: grab; user-select: none;
+      touch-action: none; }
+    .badge.dragging { cursor: grabbing; }
+    .badge .fold { margin-left: 6px; opacity: .6; }
+    .dock.min .bar, .dock.min .panel, .dock.min .bubbles { display: none; }
+    .hl { position: absolute; border: 3px solid #7d70ff; border-radius: 10px; box-shadow: 0 0 0 4px rgba(125,112,255,.35);
+      animation: hl .8s ease-in-out 3; }
+    @keyframes hl { 0%,100% { opacity: 0 } 50% { opacity: 1 } }
     .badge .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #3ecf8e; }
     .badge.warn .dot { background: #f5b83d; } .badge.bad .dot { background: #ff5d5d; }
     .bar { display: flex; gap: 2px; padding: 4px; opacity: .55; transition: opacity .2s; }
@@ -326,13 +381,20 @@
         <div class="dock">
           <div class="bubbles"></div>
           <div class="panel"><div class="msgs"></div><input maxlength="300" placeholder="Escribe un mensaje…"></div>
-          <div class="badge"><span class="dot"></span><span class="btext"></span></div>
           <div class="bar"></div>
+          <div class="badge"><span class="dot"></span><span class="btext"></span><span class="fold"></span></div>
         </div>
       </div>`;
     const $ = (s) => root.querySelector(s);
     const els = { host, root: $('.root'), toast: $('.toast'), bubbles: $('.bubbles'), panel: $('.panel'), msgs: $('.msgs'),
-      input: $('input'), badge: $('.badge'), btext: $('.btext'), bar: $('.bar') };
+      input: $('input'), badge: $('.badge'), btext: $('.btext'), bar: $('.bar'), dock: $('.dock'), fold: $('.fold') };
+    els.badge.title = 'Clic: plegar o desplegar · Arrastra para mover';
+    els.badge.addEventListener('pointerdown', (e) => dragDock(els, e));
+    placeDock(els);
+    chrome.storage.local.get('dock').then(({ dock }) => {
+      if (dock) Object.assign(dockPos, dock);
+      placeDock(els);
+    }).catch(() => {});
     for (const emoji of REACTIONS) {
       const b = document.createElement('button');
       b.textContent = emoji;
@@ -348,6 +410,61 @@
     els.chatBtn = chatBtn;
     els.bar.append(chatBtn);
     return els;
+  }
+
+  // Panel movible (arrastrando el indicador) y plegable (clic en él). Se recuerda entre páginas.
+  const dockPos = { right: 16, bottom: 72, min: false };
+
+  function placeDock(els) {
+    dockPos.right = Math.min(Math.max(dockPos.right, 0), Math.max(innerWidth - 120, 0));
+    dockPos.bottom = Math.min(Math.max(dockPos.bottom, 0), Math.max(innerHeight - 40, 0));
+    els.dock.style.right = dockPos.right + 'px';
+    els.dock.style.bottom = dockPos.bottom + 'px';
+    els.dock.classList.toggle('min', dockPos.min);
+    els.fold.textContent = dockPos.min ? '▸' : '▾';
+  }
+
+  function dragDock(els, e) {
+    const start = { x: e.clientX, y: e.clientY, right: dockPos.right, bottom: dockPos.bottom };
+    let moved = false;
+    els.badge.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      els.badge.classList.add('dragging');
+      dockPos.right = start.right - dx;
+      dockPos.bottom = start.bottom - dy;
+      placeDock(els);
+    };
+    const up = () => {
+      els.badge.removeEventListener('pointermove', move);
+      els.badge.removeEventListener('pointerup', up);
+      els.badge.removeEventListener('pointercancel', up);
+      els.badge.classList.remove('dragging');
+      if (!moved) dockPos.min = !dockPos.min;
+      placeDock(els);
+      chrome.storage.local.set({ dock: dockPos }).catch(() => {});
+    };
+    els.badge.addEventListener('pointermove', move);
+    els.badge.addEventListener('pointerup', up);
+    els.badge.addEventListener('pointercancel', up);
+  }
+
+  addEventListener('resize', () => ui && placeDock(ui));
+
+  // Lleva la vista al vídeo y lo enmarca un momento, para que se vea dónde pulsar.
+  function highlightVideo() {
+    if (!video) return;
+    video.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setTimeout(() => {
+      if (!ui || !video) return;
+      const r = video.getBoundingClientRect();
+      const hl = Object.assign(document.createElement('div'), { className: 'hl' });
+      Object.assign(hl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+      ui.root.append(hl);
+      setTimeout(() => hl.remove(), 2500);
+    }, 600);
   }
 
   function mountPoint() {
@@ -442,13 +559,17 @@
     if (role === 'host') {
       const loading = peers.filter((p) => !p.host && p.status === 'buffering').length;
       const behind = peers.filter((p) => !p.host && p.status === 'behind').length;
-      text = autoPaused ? 'Esperando a que carguen…' : loading ? `${loading} cargando` : behind ? `${behind} desincronizado` : 'Anfitrión';
-      if (autoPaused || loading || behind) cls = 'warn';
+      const click = peers.filter((p) => !p.host && p.status === 'needclick').length;
+      text = autoPaused ? 'Esperando a que carguen…' : loading ? `${loading} cargando` : behind ? `${behind} desincronizado` : click ? `${click} sin pulsar play` : 'Anfitrión';
+      if (autoPaused || loading || behind || click) cls = 'warn';
     } else if (st.status === 'ad') {
       text = 'En anuncio (se sincroniza al acabar)';
       cls = 'warn';
+    } else if (st.status === 'needclick') {
+      text = 'Pulsa play en el vídeo';
+      cls = 'warn';
     } else if (st.status === 'novideo') {
-      text = video ? 'Pulsa play en el vídeo' : 'Buscando el vídeo…';
+      text = 'Buscando el vídeo…';
       cls = 'warn';
     } else if (st.status === 'buffering') {
       text = 'Cargando…';
@@ -514,6 +635,7 @@
       chatLog = [];
       autoPaused = false;
       needsSource = false;
+      graceUntilReady = false;
       resumeFrom = null;
       return;
     }
@@ -533,7 +655,8 @@
         break;
       case 'remote-state':
         if (!active) return;
-        remote = { state: msg.state, at: Date.now() };
+        // localAt: instante (en nuestro reloj) al que corresponde state.time, ya descontada la latencia.
+        remote = { state: msg.state, at: msg.state.localAt ?? Date.now() };
         if (msg.state.reason === 'auto' && msg.state.paused && role !== 'host') toast('Pausa automática: alguien está cargando');
         if (!pendingClick) applyRemote(msg.state.reason);
         break;
@@ -558,10 +681,10 @@
         setSession(info);
         renderChat();
         if (info.state && role !== 'host') {
-          remote = { state: info.state, at: Date.now() };
+          remote = { state: info.state, at: info.state.localAt ?? Date.now() };
           applyRemote('hello');
         } else if (info.state && role === 'host' && info.state.url === location.href.replace(/#.*$/, '')) {
-          resumeFrom = { state: info.state, at: info.state.at || Date.now() };
+          resumeFrom = { state: info.state, at: info.state.localAt ?? Date.now() };
         }
       })
       .catch(() => {});

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mirrored: vídeo sincronizado en grupo",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Reproduce vídeos en perfecta sincronía con otras personas, cada una desde su navegador. Con chat, reacciones y control compartido.",
   "minimum_chrome_version": "116",
   "permissions": ["storage"],

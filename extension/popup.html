@@ -24,6 +24,8 @@
   label.check { display:flex; align-items:center; gap:8px; color:var(--fg); font-size:13px; margin:12px 0 0; cursor:pointer; }
   label.check input { width:auto; margin:0; }
   #names li span { color:var(--muted); }
+  #serverState .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:#d69a16; }
+  #serverState.ready .dot { background:#2fa874; } #serverState.down .dot { background:var(--danger); }
   .st-ok { color:#2fa874 !important; } .st-warn { color:#d69a16 !important; } .st-bad { color:var(--danger) !important; }
 </style>
 </head>
@@ -31,6 +33,7 @@
   <h1><img src="icons/icon32.png" width="22" height="22" alt=""> Mirrored</h1>
 
   <section id="idle">
+    <div class="muted" id="serverState"><span class="dot"></span><span id="serverText">Comprobando el servidor…</span></div>
     <label for="name">Tu nombre</label>
     <input id="name" maxlength="30" placeholder="Invitado">
     <label class="check"><input type="checkbox" id="allControlNew"> Todos pueden pausar y saltar</label>

@@ -10,7 +10,7 @@ const PORT = Number(process.env.PORT) || 8787;
 const PROTOCOL = 2; // súbelo cuando cambie el protocolo; las extensiones viejas verán "Actualiza la extensión"
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const REACTIONS = ['😂', '😱', '❤️', '👏', '🔥', '😮', '🙄', '💀'];
-const STATUSES = ['ok', 'behind', 'ad', 'buffering', 'novideo'];
+const STATUSES = ['ok', 'behind', 'ad', 'buffering', 'novideo', 'needclick'];
 const MAX_MSGS_PER_10S = 60;
 
 /** @type {Map<string, any>} */
@@ -33,10 +33,13 @@ function broadcast(room, msg, except) {
 }
 
 // Estado actual extrapolado: si está reproduciéndose, avanza el tiempo transcurrido.
+// `sentAt` (hora del servidor) indica a qué instante corresponde `time`.
 function currentState(room) {
   if (!room.state) return null;
   const s = { ...room.state };
-  if (!s.paused) s.time += ((Date.now() - room.stateAt) / 1000) * (s.rate || 1);
+  const now = Date.now();
+  if (!s.paused) s.time += ((now - s.sentAt) / 1000) * (s.rate || 1);
+  s.sentAt = now;
   return s;
 }
 
@@ -115,7 +118,7 @@ wss.on('connection', (ws) => {
       case 'join': {
         if (msg.v !== PROTOCOL) return send(ws, { type: 'error', message: 'Actualiza la extensión Mirrored: tu versión no es compatible con el servidor.' });
         if (msg.type === 'create') {
-          const r = { code: newCode(), clients: new Set(), host: null, state: null, stateAt: 0, seq: 0, allControl: !!msg.allControl, chat: [] };
+          const r = { code: newCode(), clients: new Set(), host: null, state: null, seq: 0, allControl: !!msg.allControl, chat: [] };
           rooms.set(r.code, r);
           join(ws, r, msg.name);
         } else {
@@ -124,7 +127,7 @@ wss.on('connection', (ws) => {
           // Tras reiniciarse el servidor (redespliegue, Render dormido…) las salas se pierden:
           // quien vuelve a una sala en la que ya estaba la recrea con el mismo código.
           if (!r && msg.rejoin && /^[A-Z0-9]{6}$/.test(code)) {
-            r = { code, clients: new Set(), host: null, state: null, stateAt: 0, seq: 0, allControl: !!msg.allControl, chat: [], restoredAt: now };
+            r = { code, clients: new Set(), host: null, state: null, seq: 0, allControl: !!msg.allControl, chat: [], restoredAt: now };
             rooms.set(code, r);
           }
           if (!r) return send(ws, { type: 'error', message: 'La sesión no existe (o ya terminó).' });
@@ -143,7 +146,7 @@ wss.on('connection', (ws) => {
       }
       case 'state': {
         if (!room || !msg.state) return;
-        const { url, time, paused, rate, duration, reason, seq } = msg.state;
+        const { url, time, paused, rate, duration, reason, seq, sentAt } = msg.state;
         const heartbeat = reason === 'heartbeat';
         const isHost = room.host === ws;
         if (!isHost && (heartbeat || !room.allControl)) return;
@@ -154,8 +157,10 @@ wss.on('connection', (ws) => {
         room.state = {
           url: String(url || '').slice(0, 2000), time, paused: !!paused, rate: Number(rate) || 1,
           duration: Number(duration) || null, reason: String(reason || '').slice(0, 20), seq: room.seq, by: ws.name, fromHost: isHost,
+          // Instante (reloj del servidor) al que corresponde `time`, estimado por el cliente. Si no viene o
+          // no es creíble (reloj mal sincronizado), usamos la llegada.
+          sentAt: typeof sentAt === 'number' && Math.abs(now - sentAt) < 5000 ? Math.min(sentAt, now) : now,
         };
-        room.stateAt = now;
         if (!heartbeat) send(ws, { type: 'ack', seq: room.seq });
         broadcast(room, { type: 'state', state: room.state }, ws);
         break;
@@ -193,7 +198,8 @@ wss.on('connection', (ws) => {
         leave(ws);
         break;
       case 'ping':
-        send(ws, { type: 'pong' });
+        // Con la hora del servidor: el cliente estima la diferencia de relojes (tipo NTP).
+        send(ws, { type: 'pong', t0: typeof msg.t0 === 'number' ? msg.t0 : null, t: Date.now() });
         break;
     }
   });

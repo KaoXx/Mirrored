@@ -1,7 +1,7 @@
-# Ficha para la Chrome Web Store — Mirrored 0.3.2
+# Ficha para la Chrome Web Store — Mirrored 0.4.0
 
 Copia cada bloque en el campo del panel de desarrollador que indica el título.
-Paquete a subir: `store/mirrored-0.3.2.zip`.
+Paquete a subir: `store/mirrored-0.4.0.zip`.
 
 ---
 

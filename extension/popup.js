@@ -22,11 +22,29 @@ async function init() {
   setInterval(refresh, 1000);
 }
 
-// Los servidores gratuitos (Render) se duermen: los despertamos en cuanto se abre el popup.
+// Los servidores gratuitos (Render) se duermen: los despertamos en cuanto se abre el popup y
+// mostramos cuándo están listos, para que nadie cree una sesión creyendo que no funciona.
+let wakeTimer = null;
 function wakeServer(url) {
-  try {
-    fetch(url.replace(/^ws/, 'http') + '/health', { mode: 'no-cors' }).catch(() => {});
-  } catch {}
+  clearTimeout(wakeTimer);
+  const started = Date.now();
+  const show = (cls, text) => {
+    $('serverState').className = 'muted ' + cls;
+    $('serverText').textContent = text;
+  };
+  const check = async () => {
+    let ok = false;
+    try {
+      const r = await fetch(url.replace(/^ws/, 'http') + '/health', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      ok = r.ok && (await r.json()).ok === true;
+    } catch {}
+    if (ok) return show('ready', 'Servidor listo');
+    const secs = Math.round((Date.now() - started) / 1000);
+    if (secs > 120) return show('down', 'El servidor no responde. Revisa la URL en «Servidor».');
+    show('', `Despertando el servidor… (${secs} s, puede tardar hasta 1 min)`);
+    wakeTimer = setTimeout(check, 3000);
+  };
+  check();
 }
 
 async function saveSettings() {
@@ -61,6 +79,7 @@ const PEER_STATUS = {
   ad: ['en un anuncio', 'st-warn'],
   buffering: ['cargando…', 'st-warn'],
   novideo: ['sin vídeo', 'st-warn'],
+  needclick: ['tiene que pulsar play', 'st-warn'],
 };
 
 function peerItem(p) {
@@ -132,7 +151,10 @@ $('copyLink').onclick = async () => {
   setTimeout(() => ($('copyLink').textContent = 'Copiar enlace de invitación'), 1500);
 };
 
-$('server').addEventListener('change', saveSettings);
+$('server').addEventListener('change', async () => {
+  await saveSettings();
+  wakeServer($('server').value.trim() || DEFAULTS.serverUrl);
+});
 $('name').addEventListener('change', saveSettings);
 
 init();
