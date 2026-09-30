@@ -249,7 +249,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       session.hostFrameId = sender.frameId;
       session.hostFrameAt = now;
       const state = { ...msg.state, url: stripInvite(sender.tab.url), seq: session.seq };
-      session.lastState = state;
+      session.lastState = { ...state, at: now }; // `at` permite al anfitrión retomar si recarga la página
       wsSend({ type: 'state', state });
       return;
     }

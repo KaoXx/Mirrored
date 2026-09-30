@@ -22,6 +22,9 @@
   let remote = null; // { state, at } último estado recibido de quien controla
   let heartbeat = null;
   let pendingClick = false;
+  let needsSource = false; // el reproductor aún no ha cargado el vídeo: hace falta que el usuario pulse play
+  let sourceGraceUntil = 0; // tras cargar la fuente, el reproductor mueve el vídeo por su cuenta un momento
+  let resumeFrom = null; // anfitrión que recarga la página: estado de la sala del que continuar
 
   // Espera por carga
   let bufferSince = null; // invitado: desde cuándo está cargando
@@ -81,6 +84,8 @@
   // ---------- Enviar estado ----------
   function sendState(reason) {
     if (!active || !canControl() || !video || video.readyState === 0) return;
+    // Anfitrión recién recargado: hasta que toque el reproductor, su vídeo (en 0) no es la referencia.
+    if (resumeFrom && !EVENTS.includes(reason)) return;
     const state = { time: video.currentTime, paused: video.paused, rate: video.playbackRate, duration: video.duration, reason };
     // Nuestra propia acción pasa a ser la referencia (en modo "todos controlan").
     if (reason !== 'heartbeat' && role !== 'host') remote = { state: { ...remote?.state, ...state }, at: Date.now() };
@@ -131,6 +136,7 @@
       expect('pause');
       video.pause();
     }
+    if (!state.paused && noSource(video)) return askForSource();
     if (!state.paused && video.paused) {
       expect('play');
       video.play().catch((err) => {
@@ -144,6 +150,19 @@
         });
       });
     }
+  }
+
+  // Algunos reproductores no ponen la fuente al <video> hasta que el usuario pulsa su botón de play.
+  // Un play() sobre un vídeo sin fuente ni falla ni avanza: se queda "reproduciendo" en vacío.
+  const noSource = (v) => !v.currentSrc && v.networkState === HTMLMediaElement.NETWORK_EMPTY;
+
+  function askForSource() {
+    // Se repite en cada estado remoto mientras el aviso no esté a la vista (p. ej. si llegó antes que la UI).
+    if (needsSource && ui?.toast.classList.contains('show')) return;
+    needsSource = true;
+    // Un clic sintético no sirve (los reproductores lo ignoran o hacen play sin fuente): solo llevamos
+    // al usuario hasta el vídeo. Cuando aparezca la fuente, el bucle principal resincroniza.
+    toast('Pulsa play en el vídeo para sincronizarte', () => video?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
 
   // Eventos que vamos a provocar nosotros al aplicar un estado remoto: el siguiente de cada tipo
@@ -171,9 +190,21 @@
     if (wasExpected(e.type) || Date.now() < ignoreUntil) return;
     if (role === 'host') {
       if (autoPaused) autoPaused = false; // el anfitrión toma el control manualmente
+      if (resumeFrom && !noSource(video)) {
+        // Primera acción tras recargar: seguimos donde iba la sala, no desde el principio del vídeo.
+        const { state, at } = resumeFrom;
+        resumeFrom = null;
+        const t = state.paused ? state.time : state.time + ((Date.now() - at) / 1000) * (state.rate || 1);
+        if (Math.abs(video.currentTime - t) > 1 && sameMedia(state)) {
+          expect('seeked');
+          video.currentTime = t;
+        }
+      }
       return sendState(e.type);
     }
     if (!remote || !sameMedia(remote.state)) return;
+    if (needsSource) return; // el usuario acaba de pulsar play para cargar el vídeo: el bucle lo resincroniza
+    if (Date.now() < sourceGraceUntil) return void setTimeout(() => applyRemote('resnap'), 300);
     if (allControl) return sendState(e.type);
     // El invitado ha tocado el reproductor: vuelve a la posición del anfitrión.
     const drifted = Math.abs(video.currentTime - targetTime()) > DRIFT_ACTION || video.paused !== remote.state.paused;
@@ -187,6 +218,7 @@
   function myStatus() {
     if (!video) return { status: 'novideo', drift: null };
     if (role === 'host' || !remote) return { status: 'ok', drift: 0 };
+    if (noSource(video)) return { status: 'novideo', drift: null };
     if (!sameMedia(remote.state)) return { status: 'ad', drift: null };
     if (bufferSince && Date.now() - bufferSince > BUFFER_REPORT_AFTER) return { status: 'buffering', drift: null };
     const drift = video.currentTime - targetTime();
@@ -196,6 +228,14 @@
   setInterval(() => {
     if (!active || !video) return;
     const now = Date.now();
+
+    // El reproductor ya ha cargado el vídeo: nos ponemos en el punto de quien controla.
+    if (needsSource && !noSource(video)) {
+      needsSource = false;
+      sourceGraceUntil = now + 4000;
+      if (ui) ui.toast.className = 'toast';
+      applyRemote('source');
+    }
 
     // Invitado: ¿está cargando mientras los demás reproducen?
     if (role !== 'host' && remote && sameMedia(remote.state)) {
@@ -407,6 +447,9 @@
     } else if (st.status === 'ad') {
       text = 'En anuncio (se sincroniza al acabar)';
       cls = 'warn';
+    } else if (st.status === 'novideo') {
+      text = video ? 'Pulsa play en el vídeo' : 'Buscando el vídeo…';
+      cls = 'warn';
     } else if (st.status === 'buffering') {
       text = 'Cargando…';
       cls = 'warn';
@@ -470,6 +513,8 @@
       remote = null;
       chatLog = [];
       autoPaused = false;
+      needsSource = false;
+      resumeFrom = null;
       return;
     }
     if (role === 'host') {
@@ -515,6 +560,8 @@
         if (info.state && role !== 'host') {
           remote = { state: info.state, at: Date.now() };
           applyRemote('hello');
+        } else if (info.state && role === 'host' && info.state.url === location.href.replace(/#.*$/, '')) {
+          resumeFrom = { state: info.state, at: info.state.at || Date.now() };
         }
       })
       .catch(() => {});
