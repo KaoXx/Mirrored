@@ -197,7 +197,8 @@ function stop() {
 function samePage(a, b) {
   try {
     const x = new URL(a), y = new URL(b);
-    return x.origin + x.pathname === y.origin + y.pathname;
+    // Con parámetros: en muchas webs el vídeo va en la query (YouTube ?v=, otras ?e=…).
+    return x.origin + x.pathname + x.search === y.origin + y.pathname + y.search;
   } catch {
     return false;
   }

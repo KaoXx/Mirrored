@@ -113,28 +113,30 @@
     if (!sameMedia(state)) return;
     // En pausa se nota cualquier diferencia, así que ajustamos más fino.
     const tolerance = state.paused ? 0.15 : reason === 'heartbeat' ? DRIFT_HEARTBEAT : DRIFT_ACTION;
-    // Solo ignoramos eventos locales si de verdad vamos a mover el vídeo; si no, un latido
-    // cualquiera taparía las acciones del usuario.
-    const touch = () => (ignoreUntil = Date.now() + 1500);
+    // Mientras el vídeo carga (tras un salto o por red lenta) no lo movemos por un simple latido:
+    // cada salto reinicia la carga y nunca llegaría a reproducirse.
+    const loading = video.seeking || video.readyState < 3;
 
     if (video.playbackRate !== state.rate) {
-      touch();
+      expect('ratechange');
       video.playbackRate = state.rate;
     }
     const target = targetTime();
-    if (Math.abs(video.currentTime - target) > tolerance) {
-      touch();
+    if (Math.abs(video.currentTime - target) > tolerance && !(reason === 'heartbeat' && loading)) {
+      expect('seeked');
       video.currentTime = target;
     }
 
     if (state.paused && !video.paused) {
-      touch();
+      expect('pause');
       video.pause();
     }
     if (!state.paused && video.paused) {
-      touch();
-      video.play().catch(() => {
-        // El navegador bloquea el autoplay hasta que el usuario interactúe.
+      expect('play');
+      video.play().catch((err) => {
+        // Solo NotAllowedError es un bloqueo de autoplay. Un AbortError (el play se canceló por un salto
+        // o una pausa mientras cargaba) es normal en vídeos lentos y no debe congelar la sincronización.
+        if (err?.name !== 'NotAllowedError') return;
         pendingClick = true;
         toast('Haz clic aquí para sincronizarte', () => {
           pendingClick = false;
@@ -144,6 +146,21 @@
     }
   }
 
+  // Eventos que vamos a provocar nosotros al aplicar un estado remoto: el siguiente de cada tipo
+  // se descarta, llegue cuando llegue (en vídeos lentos, un 'seeked' puede tardar segundos).
+  const expected = {};
+  function expect(type) {
+    expected[type] = Date.now() + 20000;
+    ignoreUntil = Date.now() + 400; // margen corto para eventos colaterales del reproductor
+  }
+  function wasExpected(type) {
+    if (expected[type] && Date.now() < expected[type]) {
+      expected[type] = 0;
+      return true;
+    }
+    return false;
+  }
+
   // ---------- Eventos locales ----------
   function onLocalEvent(e) {
     if (!active || !video) return;
@@ -151,7 +168,7 @@
       autoAction = false;
       return sendState('auto');
     }
-    if (Date.now() < ignoreUntil) return;
+    if (wasExpected(e.type) || Date.now() < ignoreUntil) return;
     if (role === 'host') {
       if (autoPaused) autoPaused = false; // el anfitrión toma el control manualmente
       return sendState(e.type);
