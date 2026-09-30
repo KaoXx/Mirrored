@@ -2,7 +2,8 @@
 // entre el servidor y los content scripts de la pestaña vinculada a la sesión.
 
 const PROTOCOL = 2;
-const DEFAULTS = { serverUrl: 'ws://localhost:8787', name: 'Invitado' };
+const DEFAULT_SERVER = 'wss://mirrored-server.onrender.com';
+const DEFAULTS = { serverUrl: DEFAULT_SERVER, name: 'Invitado' };
 const MAX_RETRIES = 12; // ~100 s en total: da tiempo a que un servidor gratuito "dormido" despierte
 
 /** Sesión activa (solo una a la vez). */
@@ -12,7 +13,9 @@ let session = null;
 
 async function settings() {
   const s = await chrome.storage.local.get(DEFAULTS);
-  return { serverUrl: s.serverUrl || DEFAULTS.serverUrl, name: s.name || DEFAULTS.name };
+  // La 0.1/0.2 guardaba localhost por defecto: lo tratamos como "sin configurar".
+  const serverUrl = !s.serverUrl || s.serverUrl === 'ws://localhost:8787' ? DEFAULT_SERVER : s.serverUrl;
+  return { serverUrl, name: s.name || DEFAULTS.name };
 }
 
 function toTab(msg) {

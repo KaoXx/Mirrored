@@ -47,10 +47,14 @@ y publícalo con un túnel de Cloudflare con nombre (necesita dominio) o un prox
 
 ## 2. Instalar la extensión (tú y cada invitado)
 
+Cuando esté aprobada en la Chrome Web Store, basta con instalarla desde allí (sirve también para Brave).
+Mientras tanto, o para desarrollo:
+
 1. Abre `chrome://extensions` (o `brave://extensions`).
 2. Activa **Modo desarrollador**.
 3. **Cargar descomprimida** → elige la carpeta `extension/`.
-4. Pulsa el icono de Mirrored → **Servidor** → pega la URL `wss://…` del paso 1.
+4. Ya viene configurada con el servidor `wss://mirrored-server.onrender.com`. Solo si usas otro,
+   cámbialo en el icono de Mirrored → **Servidor**.
 
 Al actualizar la extensión, cada uno debe pulsar el botón ↻ de Mirrored en `brave://extensions`.
 Si alguien tiene una versión incompatible con el servidor, verá "Actualiza la extensión".
@@ -101,3 +105,12 @@ Suele ser una de estas cosas, no la extensión:
    Mediaset ha detectado una VPN (OpenVPN, WireGuard, Brave VPN…). Desconéctala.
 1. **Widevine desactivado:** `brave://settings/extensions` → activa *Widevine* y reinicia Brave.
 2. **Shields:** pulsa el león en mediasetinfinity.es → desactiva Shields para ese sitio.
+
+## Privacidad
+
+Ver [PRIVACY.md](PRIVACY.md).
+
+## Publicar en la Chrome Web Store
+
+Textos de la ficha, gráficos y paquete en [store/](store/) (ver `store/ficha.md`).
+El ZIP se genera con `extension/` en la raíz y rutas con `/`.

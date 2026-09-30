@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<style>
+  :root { --ink:#f4f2ff; --muted:#b9b3d9; --v1:#6D5BFF; --v2:#C13CF0; --bg:#0e0c1a; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#333; font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif; color:var(--ink); }
+  .a { position:relative; overflow:hidden; background:var(--bg); margin-bottom:40px; }
+  .glow::before { content:''; position:absolute; inset:-30%; background:
+      radial-gradient(40% 50% at 15% 20%, rgba(109,91,255,.45), transparent 70%),
+      radial-gradient(35% 45% at 90% 90%, rgba(193,60,240,.35), transparent 70%); }
+  .a > * { position:relative; }
+  h1 { font-weight:700; letter-spacing:-.02em; line-height:1.08; }
+  .grad { background:linear-gradient(90deg,#a99cff,#e38cff); -webkit-background-clip:text; color:transparent; }
+  .win { border-radius:14px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08); background:#1b1a22; }
+  .win .top { height:34px; display:flex; align-items:center; gap:7px; padding:0 14px; background:#23222c; }
+  .win .top i { width:11px; height:11px; border-radius:50%; background:#4a4958; display:block; }
+  .win .top .url { margin-left:14px; flex:1; height:20px; border-radius:6px; background:#2e2d38; }
+  .win img { display:block; width:100%; }
+  .pop { border-radius:12px; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.08); background:#fff; }
+  .pop img { display:block; width:100%; }
+  .brand { display:flex; align-items:center; gap:12px; font-weight:700; }
+  ul.b { list-style:none; padding:0; display:flex; flex-direction:column; gap:14px; color:var(--muted); font-size:19px; }
+  ul.b li { display:flex; gap:12px; align-items:flex-start; }
+  ul.b li::before { content:''; flex:none; width:9px; height:9px; margin-top:9px; border-radius:50%; background:linear-gradient(135deg,var(--v1),var(--v2)); }
+  .step { display:flex; gap:16px; align-items:flex-start; }
+  .num { flex:none; width:40px; height:40px; border-radius:12px; display:grid; place-items:center; font-weight:700; font-size:19px;
+    background:linear-gradient(135deg,var(--v1),var(--v2)); }
+  .step h3 { font-size:21px; margin-bottom:4px; } .step p { color:var(--muted); font-size:17px; line-height:1.4; }
+</style></head><body>
+
+<!-- Captura 1 -->
+<div class="a glow" id="s1" style="width:1280px;height:800px;padding:64px 60px">
+  <div class="brand" style="font-size:22px"><img src="../logo-512.png" width="36"> Mirrored</div>
+  <h1 style="font-size:50px;margin-top:34px;width:430px">Ved vídeos juntos, <span class="grad">en perfecta sincronía</span></h1>
+  <ul class="b" style="margin-top:34px;width:400px">
+    <li>Cada uno ve el vídeo en su navegador, con su propia cuenta</li>
+    <li>Play, pausa y saltos se sincronizan al instante</li>
+    <li>Funciona en la mayoría de webs con vídeo HTML5</li>
+  </ul>
+  <div class="win" style="position:absolute;left:500px;top:120px;width:760px"><div class="top"><i></i><i></i><i></i><div class="url"></div></div><img src="cap-player.png"></div>
+  <div class="pop" style="position:absolute;left:500px;top:392px;width:290px"><img src="cap-popup-host.png"></div>
+</div>
+
+<!-- Captura 2 -->
+<div class="a glow" id="s2" style="width:1280px;height:800px;padding:52px 60px">
+  <h1 style="font-size:44px;text-align:center">Chat y reacciones <span class="grad">encima del vídeo</span></h1>
+  <p style="text-align:center;color:var(--muted);font-size:20px;margin-top:12px">También en pantalla completa. Mientras escribes, las teclas no llegan al reproductor.</p>
+  <div class="win" style="position:absolute;left:110px;top:176px;width:1060px"><div class="top"><i></i><i></i><i></i><div class="url"></div></div><img src="cap-player-chat.png"></div>
+</div>
+
+<!-- Captura 3 -->
+<div class="a glow" id="s3" style="width:1280px;height:800px;padding:150px 64px">
+  <h1 style="font-size:46px;width:560px">Invita con un enlace. <span class="grad">Así de fácil.</span></h1>
+  <div style="margin-top:44px;display:flex;flex-direction:column;gap:30px;width:520px">
+    <div class="step"><div class="num">1</div><div><h3>Abre el vídeo</h3><p>En la web donde lo veas normalmente.</p></div></div>
+    <div class="step"><div class="num">2</div><div><h3>Crea una sesión</h3><p>Un clic en el icono de Mirrored.</p></div></div>
+    <div class="step"><div class="num">3</div><div><h3>Comparte el enlace</h3><p>Quien lo abra con la extensión entra solo. Verás si cada persona está sincronizada, cargando o en un anuncio.</p></div></div>
+  </div>
+  <div class="pop" style="position:absolute;left:630px;top:210px;width:300px;transform:rotate(-3deg)"><img src="cap-popup-idle.png"></div>
+  <div class="pop" style="position:absolute;left:880px;top:150px;width:340px;transform:rotate(2deg)"><img src="cap-popup-host.png"></div>
+</div>
+
+<!-- Promo pequeña 440x280 -->
+<div class="a glow" id="tile" style="width:440px;height:280px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px">
+  <img src="../logo-512.png" width="92">
+  <div style="font-size:34px;font-weight:700;letter-spacing:-.02em">Mirrored</div>
+  <div style="font-size:17px;color:var(--muted)">Ved vídeos juntos, sincronizados</div>
+</div>
+
+<!-- Marquesina 1400x560 -->
+<div class="a glow" id="marquee" style="width:1400px;height:560px;padding:0 80px;display:flex;align-items:center">
+  <div style="width:520px">
+    <div class="brand" style="font-size:26px"><img src="../logo-512.png" width="48"> Mirrored</div>
+    <h1 style="font-size:54px;margin-top:26px">Ved vídeos juntos, <span class="grad">estéis donde estéis</span></h1>
+    <p style="color:var(--muted);font-size:21px;margin-top:18px;line-height:1.4">Sincroniza la reproducción, chatea y reacciona en directo.</p>
+  </div>
+  <div class="win" style="position:absolute;left:660px;top:70px;width:700px"><div class="top"><i></i><i></i><i></i><div class="url"></div></div><img src="cap-player-chat.png"></div>
+</div>
+</body></html>

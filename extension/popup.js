@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { serverUrl: 'ws://localhost:8787', name: '' };
+const DEFAULT_SERVER = 'wss://mirrored-server.onrender.com';
+const DEFAULTS = { serverUrl: DEFAULT_SERVER, name: '' };
 const STATUS = {
   connecting: 'Conectando… (si el servidor estaba dormido puede tardar hasta 1 min)',
   reconnecting: 'Reconectando…',
@@ -13,6 +14,7 @@ let hostUrl = null;
 async function init() {
   [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const s = await chrome.storage.local.get(DEFAULTS);
+  if (s.serverUrl === 'ws://localhost:8787') s.serverUrl = DEFAULT_SERVER; // valor por defecto antiguo
   $('server').value = s.serverUrl;
   $('name').value = s.name;
   wakeServer(s.serverUrl);

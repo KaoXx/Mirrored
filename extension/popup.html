@@ -7,7 +7,7 @@
   @media (prefers-color-scheme: dark) { :root { --bg:#16161d; --fg:#ececf1; --muted:#9a9aab; --line:#2c2c38; --accent:#7d70ff; } }
   * { box-sizing: border-box; }
   body { margin:0; width:320px; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
-  h1 { font-size:16px; margin:0 0 12px; }
+  h1 { font-size:16px; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
   label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
   input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
   button { width:100%; margin-top:10px; padding:9px; border:0; border-radius:8px; background:var(--accent); color:var(--accent-fg); font:inherit; font-weight:600; cursor:pointer; }
@@ -28,7 +28,7 @@
 </style>
 </head>
 <body>
-  <h1>⟳ Mirrored</h1>
+  <h1><img src="icons/icon32.png" width="22" height="22" alt=""> Mirrored</h1>
 
   <section id="idle">
     <label for="name">Tu nombre</label>

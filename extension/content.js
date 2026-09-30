@@ -109,7 +109,8 @@
     if (role === 'host' && !allControl) return;
     const { state } = remote;
     if (!sameMedia(state)) return;
-    const tolerance = reason === 'heartbeat' ? DRIFT_HEARTBEAT : DRIFT_ACTION;
+    // En pausa se nota cualquier diferencia, así que ajustamos más fino.
+    const tolerance = state.paused ? 0.15 : reason === 'heartbeat' ? DRIFT_HEARTBEAT : DRIFT_ACTION;
     // Solo ignoramos eventos locales si de verdad vamos a mover el vídeo; si no, un latido
     // cualquiera taparía las acciones del usuario.
     const touch = () => (ignoreUntil = Date.now() + 1500);
@@ -365,7 +366,9 @@
     if (!ui) return;
     const el = document.createElement('div');
     el.className = 'float';
-    el.style.right = 40 + Math.random() * 220 + 'px';
+    // Suben a la izquierda del panel de chat para no taparlo (en reproductores estrechos, por encima).
+    const wide = innerWidth > 720;
+    el.style.right = (wide ? 330 + Math.random() * 180 : 20 + Math.random() * (innerWidth * 0.5)) + 'px';
     el.textContent = r.emoji;
     el.append(Object.assign(document.createElement('small'), { textContent: r.id === myId ? 'Tú' : r.name }));
     ui.root.append(el);
