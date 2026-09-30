@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#16161d; --muted:#6b6b7b; --line:#e3e3ea; --accent:#5b4bff; --accent-fg:#fff; --danger:#d23a3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16161d; --fg:#ececf1; --muted:#9a9aab; --line:#2c2c38; --accent:#7d70ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; width:320px; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  h1 { font-size:16px; margin:0 0 12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
+  button { width:100%; margin-top:10px; padding:9px; border:0; border-radius:8px; background:var(--accent); color:var(--accent-fg); font:inherit; font-weight:600; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  button.danger { background:transparent; color:var(--danger); border:1px solid var(--danger); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .code { font:600 28px/1 ui-monospace, monospace; letter-spacing:4px; text-align:center; padding:12px; border:1px dashed var(--line); border-radius:10px; margin:6px 0; user-select:all; }
+  .muted { color:var(--muted); font-size:12px; }
+  .err { color:var(--danger); font-size:12px; margin-top:8px; }
+  hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
+  details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:12px; }
+  ul { margin:4px 0 0; padding-left:18px; }
+  .hidden { display:none; }
+  label.check { display:flex; align-items:center; gap:8px; color:var(--fg); font-size:13px; margin:12px 0 0; cursor:pointer; }
+  label.check input { width:auto; margin:0; }
+  #names li span { color:var(--muted); }
+  .st-ok { color:#2fa874 !important; } .st-warn { color:#d69a16 !important; } .st-bad { color:var(--danger) !important; }
+</style>
+</head>
+<body>
+  <h1>⟳ Mirrored</h1>
+
+  <section id="idle">
+    <label for="name">Tu nombre</label>
+    <input id="name" maxlength="30" placeholder="Invitado">
+    <label class="check"><input type="checkbox" id="allControlNew"> Todos pueden pausar y saltar</label>
+    <button id="create">Crear sesión en esta pestaña</button>
+    <hr>
+    <label for="code">¿Te han pasado un código?</label>
+    <div class="row">
+      <input id="code" maxlength="6" placeholder="ABC123" style="text-transform:uppercase">
+      <button id="join" class="secondary" style="margin-top:0">Unirme</button>
+    </div>
+    <details>
+      <summary>Servidor</summary>
+      <label for="server">URL del servidor de sincronización</label>
+      <input id="server" placeholder="wss://tu-servidor">
+    </details>
+  </section>
+
+  <section id="live" class="hidden">
+    <div class="muted" id="status"></div>
+    <div class="code" id="liveCode"></div>
+    <div id="hostTools" class="hidden">
+      <label class="check"><input type="checkbox" id="allControl"> Todos pueden pausar y saltar</label>
+      <button id="copyLink">Copiar enlace de invitación</button>
+      <p class="muted">Quien abra el enlace con la extensión instalada entrará solo. También puede escribir el código.</p>
+    </div>
+    <div id="guestTools" class="hidden">
+      <button id="goHost" class="secondary">Abrir la página del anfitrión</button>
+    </div>
+    <p class="muted" style="margin-bottom:0">Conectados:</p>
+    <ul id="names" class="muted"></ul>
+    <button id="leave" class="danger">Salir de la sesión</button>
+  </section>
+
+  <div id="error" class="err"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
