@@ -9,12 +9,12 @@ Paquete a subir: `store/mirrored-0.3.0.zip`.
 
 ### Nombre (sale del manifest, no se edita aquí)
 ```
-Mirrored: ver vídeos juntos
+Mirrored: vídeo sincronizado en grupo
 ```
 
-### Resumen (sale del manifest, 126/132 caracteres)
+### Resumen (sale del manifest, 130/132 caracteres)
 ```
-Ved vídeos a la vez con tus amigos: play, pausa y saltos sincronizados, con chat y reacciones. Funciona en la mayoría de webs.
+Reproduce vídeos en perfecta sincronía con otras personas, cada una desde su navegador. Con chat, reacciones y control compartido.
 ```
 
 ### Descripción
