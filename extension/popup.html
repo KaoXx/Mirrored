@@ -11,6 +11,7 @@
   label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
   input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
   button { width:100%; margin-top:10px; padding:9px; border:0; border-radius:8px; background:var(--accent); color:var(--accent-fg); font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:progress; }
   button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
   button.danger { background:transparent; color:var(--danger); border:1px solid var(--danger); }
   .row { display:flex; gap:8px; } .row > * { flex:1; }

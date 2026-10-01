@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mirrored fixture: anuncio</title>
+<style>
+  body { margin: 0; background: #222; }
+  video { width: 320px; height: 180px; display: block; background: #000; }
+</style>
+</head>
+<body>
+<!-- "Anuncio": autoplay silenciado en bucle, ≥ 200x100 para que Mirrored lo tenga en cuenta.
+     Mismo vídeo que el principal (misma duración): sin la elección de frame principal, Mirrored lo
+     sincronizaría igual que al vídeo bueno. -->
+<video muted autoplay loop playsinline preload="auto" src="/main.webm"></video>
+<script>
+  // La prueba cuenta los saltos y pausas del anuncio para ver si alguien lo ha tocado.
+  window.__ad = { seeks: 0, pauses: 0 };
+  const v = document.querySelector('video');
+  // ?big=1: anuncio grande, con sonido y corto (otra duración)
+  if (new URLSearchParams(location.search).has('big')) {
+    v.muted = false;
+    Object.assign(v.style, { width: '1200px', height: '675px' });
+    v.src = '/short.webm';
+  }
+  v.addEventListener('seeking', () => window.__ad.seeks++);
+  v.addEventListener('pause', () => window.__ad.pauses++);
+</script>
+</body>
+</html>

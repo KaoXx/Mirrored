@@ -2,7 +2,8 @@
 // Uso: ver tests/README.md. Variables: ONLY, EXT, PROF, DEBUG, HEADFUL, BROWSER, BROWSER_PATH, SERVER.
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,9 +48,10 @@ async function peer(name) {
   await sw.evaluate((s) => chrome.storage.local.set(s), { name, ...(LOCAL ? { serverUrl: LOCAL_URL } : {}) });
   const page = ctx.pages()[0] || (await ctx.newPage());
   // Cierra popunders de anuncios
-  ctx.on('page', (p) => { if (p !== page) setTimeout(() => p.close().catch(() => {}), 300); });
+  // (salvo las que abre la propia prueba: P.allowNew)
+  ctx.on('page', (p) => { if (p !== page && !P.allowNew) setTimeout(() => p.close().catch(() => {}), 300); });
   if (process.env.DEBUG) page.on('console', (m) => { if (m.text().includes('[MR]')) log('   ', name.padEnd(9), m.text().slice(5, 220)); });
-  const P = { name, ctx, sw, page };
+  const P = { name, ctx, sw, page, allowNew: false };
   await openEpisode(P);
   await page.getByText('Aceptar y continuar').click({ timeout: 4000 }).catch(() => {});
   return P;
@@ -88,9 +90,12 @@ async function ui(p, cls) {
       for (const c of [...(n.children || []), ...(n.shadowRoots || [])]) walk(c);
     })(root);
     if (!found) return null;
-    const text = (await cdp.send('DOM.getOuterHTML', { nodeId: found.nodeId })).outerHTML.replace(/<[^>]+>/g, '');
+    // Clase y texto de la MISMA lectura: getDocument es una instantánea anterior y el nodo puede haber
+    // cambiado entre medias (p. ej. un aviso temporal que da paso a uno pulsable).
+    const html = (await cdp.send('DOM.getOuterHTML', { nodeId: found.nodeId })).outerHTML;
+    const text = html.replace(/<[^>]+>/g, '');
     const bm = await cdp.send('DOM.getBoxModel', { nodeId: found.nodeId }).catch(() => null);
-    const className = found.attributes[found.attributes.indexOf('class') + 1];
+    const className = /^<[^>]*\bclass="([^"]*)"/.exec(html)?.[1] ?? found.attributes[found.attributes.indexOf('class') + 1];
     const q = bm?.model.content;
     return { className, text, shown: /\bshow\b/.test(className), ...(q ? { x: (q[0] + q[4]) / 2, y: (q[1] + q[5]) / 2 } : {}) };
   } finally {
@@ -209,6 +214,81 @@ async function startLocalServer() {
   if (!ok) throw new Error(`el servidor local no responde en :${LOCAL_PORT}`);
   log(`servidor local en ${LOCAL_URL}`);
 }
+
+// ---------- páginas de prueba locales (S18–S21) ----------
+// tests/fixtures/ servido en :8801. http://localhost:8801 y http://127.0.0.1:8801 son orígenes (y
+// "sitios", para Mirrored) distintos. /a.html, /b.html → video.html (mismo sitio, páginas distintas);
+// ?ad=1 añade un iframe del otro origen con un "anuncio" en autoplay. /ad.html → ad.html.
+const FIX_PORT = 8801;
+const FIX = `http://localhost:${FIX_PORT}`;
+const FIX_OTHER = `http://127.0.0.1:${FIX_PORT}`;
+let fixServer = null;
+async function fixtures() {
+  if (fixServer) return;
+  const dir = path.join(ROOT, 'tests', 'fixtures');
+  const routes = { '/a.html': 'video.html', '/b.html': 'video.html', '/ad.html': 'ad.html' };
+  const videos = { '/main.webm': 'main.webm', '/short.webm': 'short.webm' }; // ver fixtures/make-videos.mjs
+  fixServer = http.createServer((req, res) => {
+    const pathname = new URL(req.url, 'http://x').pathname;
+    if (videos[pathname]) {
+      // Con Range (206): sin él, el navegador no puede saltar a otro punto del vídeo.
+      const data = readFileSync(path.join(dir, videos[pathname]));
+      const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+      if (!m) return void res.writeHead(200, { 'content-type': 'video/webm', 'accept-ranges': 'bytes', 'content-length': data.length }).end(data);
+      const start = m[1] ? +m[1] : Math.max(0, data.length - +m[2]);
+      const end = m[1] && m[2] ? Math.min(+m[2], data.length - 1) : data.length - 1;
+      res.writeHead(206, { 'content-type': 'video/webm', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${data.length}`, 'content-length': end - start + 1 });
+      return void res.end(data.subarray(start, end + 1));
+    }
+    const file = routes[pathname];
+    if (!file) return void res.writeHead(404).end('no');
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(readFileSync(path.join(dir, file)));
+  });
+  await new Promise((r, j) => fixServer.once('error', j).listen(FIX_PORT, r)); // "::" acepta también IPv4
+  for (const o of [FIX, FIX_OTHER]) if (!(await fetch(o + '/a.html')).ok) throw new Error(`fixtures no accesibles en ${o}`);
+  log(`páginas de prueba en ${FIX} y ${FIX_OTHER}`);
+}
+// Abre una página de prueba y espera a que el vídeo principal tenga metadatos
+async function openFixture(p, url) {
+  await p.page.goto(url, { waitUntil: 'domcontentloaded' });
+  await p.page.waitForFunction(() => document.querySelector('video')?.readyState >= 1, null, { timeout: 30000 });
+  await sleep(500);
+}
+// Como create()/join(), pero en la pestaña donde está la página del peer (cualquier web)
+async function startHere(p, action) {
+  await p.sw.evaluate(async ([url, a]) => {
+    const tabs = await chrome.tabs.query({});
+    const t = tabs.find((t) => t.url === url) || tabs.find((t) => (t.url || '').split('#')[0] === url.split('#')[0]);
+    await start(t.id, a);
+  }, [p.page.url(), action]);
+  return waitUntil(async () => { const s = await status(p); return s.code && s.status === 'connected' ? s : null; }, 60000);
+}
+async function fixtureSession(host, guests, url, { t = 30, hostPlaying = true } = {}) {
+  await leaveAll();
+  for (const p of [host, ...guests]) await openFixture(p, url);
+  await vid(host, `v.currentTime = ${t}; ${hostPlaying ? 'v.play()' : ''}`);
+  const s = await startHere(host, { type: 'create' });
+  if (!s) throw new Error('no se pudo crear la sala');
+  for (const g of guests) if (!(await startHere(g, { type: 'join', code: s.code }))) throw new Error(`${g.name} no pudo unirse`);
+  return s.code;
+}
+// Play/pausa con un clic real (gesto de la persona) en el <video controls> principal de la página de prueba
+async function clickPlay(p) {
+  const was = (await st(p)).paused;
+  const box = await p.page.locator('#main').boundingBox();
+  await p.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  if (await waitUntil(async () => (await st(p)).paused !== was, 2000)) return;
+  await p.page.mouse.click(box.x + 20, box.y + box.height - 18); // botón de play de los controles nativos
+}
+// Nº de interfaces de Mirrored (<mirrored-ui>) en el documento principal y en cada iframe
+const adFrame = (p) => p.page.frames().find((f) => f.url().includes('/ad.html'));
+async function docks(p) {
+  const count = (f) => f?.evaluate(() => document.querySelectorAll('mirrored-ui').length).catch(() => -1) ?? -1;
+  return { top: await count(p.page.mainFrame()), ad: await count(adFrame(p)) };
+}
+const adState = (p) =>
+  adFrame(p)?.evaluate(() => { const v = document.querySelector('video'); return { t: v.currentTime, paused: v.paused, rs: v.readyState, ...window.__ad }; }).catch(() => null) ?? null;
 
 // =====================================================================
 mkdirSync(TMP, { recursive: true });
@@ -533,6 +613,206 @@ await run('S17 el anfitrión ve quién tiene que pulsar play', async () => {
   check('tras pulsar play vuelve a "ok"', !!(await waitUntil(async () => (await peerStatus(H, 'Invitado2')) === 'ok', 10000)), await peerStatus(H, 'Invitado2'));
 });
 
+await run('S18 iframes: solo actúa el frame principal (anuncio en iframe de otro origen)', async () => {
+  await fixtures();
+  const url = `${FIX}/a.html?ad=1`;
+  await leaveAll();
+  for (const p of [H, G]) {
+    await openFixture(p, url);
+    const ad = await waitUntil(async () => { const a = await adState(p); return a && !a.paused && a.rs >= 2 ? a : null; }, 30000);
+    check(`${p.name}: el anuncio del iframe arranca solo`, !!ad, JSON.stringify(ad));
+  }
+  await vid(H, 'v.currentTime = 30; v.play()');
+  const code = (await startHere(H, { type: 'create' }))?.code;
+  if (!code) throw new Error('no se pudo crear la sala');
+  // Antes de la elección todos los frames se creen principales: medimos el anuncio del invitado desde que entra
+  const adBefore = await adState(G);
+  if (process.env.EDEBUG) await G.sw.evaluate(() => {
+    self.__elog = [];
+    const orig = electPrimary;
+    electPrimary = (s) => { const before = s.primary; const r = orig(s); self.__elog.push({ t: Date.now() % 100000, before, after: s.primary, frames: [...s.frames].map(([id, f]) => [id, Math.round(f.score), Date.now() - f.at]), claim: s.claim }); return r; };
+    const origReset = resetFrames;
+    resetFrames = (s) => { self.__elog.push({ t: Date.now() % 100000, reset: true, stack: new Error().stack.split(String.fromCharCode(10)).slice(2, 4).join(' ') }); return origReset(s); };
+  });
+  if (!(await startHere(G, { type: 'join', code }))) throw new Error('el invitado no pudo unirse');
+  const one = (x) => x.top === 1 && x.ad === 0;
+  const elected = await waitUntil(async () => { const [h, g] = [await docks(H), await docks(G)]; return one(h) && one(g) ? [h, g] : null; }, 15000);
+  check('un solo panel por pestaña (el del frame principal)', !!elected, JSON.stringify({ H: await docks(H), G: await docks(G) }));
+  const adJoin = await adState(G);
+  // Informativo: la elección tarda unos ms y, mientras, el iframe del invitado puede aplicar el primer estado
+  log('   anuncio del invitado durante la elección:', JSON.stringify({ antes: adBefore, despues: adJoin }));
+  await step('alineación de los vídeos principales', null, (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 2000, ps: [H, G] });
+  const ad0 = { H: await adState(H), G: await adState(G) };
+  const dumpE = async () => { if (process.env.EDEBUG) { const l = await G.sw.evaluate(() => self.__elog); log('ELOG', JSON.stringify(l.filter((e, i) => e.reset || e.before !== e.after || i === l.length - 1))); } };
+  await step('anfitrión pausa', () => vid(H, 'v.pause()'), (h, g) => h.paused && g.paused && d(h, g) < 0.5, { ps: [H, G] });
+  // El anuncio del anfitrión sigue reproduciéndose; no debe mover al invitado
+  await dumpE();
+  const g1 = await st(G);
+  await sleep(6000);
+  const g2 = await st(G);
+  check('el anuncio del anfitrión no mueve al invitado (6 s en pausa)', g2.paused && Math.abs(g2.t - g1.t) < 0.2, `${fmt(g1)} → ${fmt(g2)}`);
+  const adH = await adState(H), adG = await adState(G);
+  check('el anuncio del anfitrión sigue reproduciéndose', adH && !adH.paused && adH.t > ad0.H.t, JSON.stringify(adH));
+  check('el anuncio del invitado no se pausa con la sala', adG && !adG.paused && adG.t > ad0.G.t, JSON.stringify(adG));
+  await step('salto a 300 en pausa', () => vid(H, 'v.currentTime = 300'), (h, g) => g.paused && Math.abs(g.t - 300) < 0.5, { ps: [H, G] });
+  // Play con un clic real en el reproductor (acción de la persona, mientras el anuncio sigue en autoplay)
+  await step('anfitrión pulsa play en el reproductor', () => clickPlay(H), (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 2000, ps: [H, G] });
+  await step('salto a 450 reproduciendo', () => vid(H, 'v.currentTime = 450'), (h, g) => h.t > 450 && playing(g) && d(h, g) < 1, { hold: 2000, ps: [H, G] });
+  const adG2 = await adState(G);
+  check('el anuncio del invitado no se tocó tras la elección (sin saltos ni pausas)', adG2 && adG2.seeks === ad0.G.seeks && adG2.pauses === ad0.G.pauses && !adG2.paused, `${JSON.stringify(ad0.G)} → ${JSON.stringify(adG2)}`);
+  const adH2 = await adState(H);
+  check('el anuncio del anfitrión no se tocó', adH2 && adH2.seeks === ad0.H.seeks && adH2.pauses === ad0.H.pauses, `${JSON.stringify(ad0.H)} → ${JSON.stringify(adH2)}`);
+  check('sigue habiendo un solo panel por pestaña', one(await docks(H)) && one(await docks(G)), JSON.stringify({ H: await docks(H), G: await docks(G) }));
+  // Sin el vídeo principal, el iframe pasa a ser el frame principal
+  await H.page.evaluate(() => document.querySelector('#main').remove());
+  const moved = await waitUntil(async () => { const x = await docks(H); return x.top === 0 && x.ad === 1 ? x : null; }, 15000);
+  check('sin el vídeo principal, el panel pasa al iframe', !!moved, JSON.stringify(await docks(H)));
+
+  // Reclamar: un anuncio grande y con sonido en el iframe gana la elección por tamaño; al pulsar la
+  // persona play en el vídeo bueno (frame superior), ese frame pasa a ser el principal y la acción llega.
+  await leaveAll();
+  await openFixture(H, `${FIX}/a.html?ad=big`);
+  await openFixture(G, `${FIX}/a.html`);
+  await waitUntil(async () => { const a = await adState(H); return a && !a.paused && a.rs >= 2; }, 30000);
+  await vid(H, 'v.currentTime = 30');
+  const code2 = (await startHere(H, { type: 'create' }))?.code;
+  if (!code2 || !(await startHere(G, { type: 'join', code: code2 }))) throw new Error('no se pudo montar la sala del anuncio grande');
+  const adWins = await waitUntil(async () => { const x = await docks(H); return x.top === 0 && x.ad === 1 ? x : null; }, 15000);
+  check('(premisa) el anuncio grande gana la elección', !!adWins, JSON.stringify(await docks(H)));
+  await sleep(3000);
+  const gAd = await st(G);
+  // Se queda donde estaba (0) o en el 30 del vídeo bueno si su estado llegó antes de la elección; lo que
+  // no debe hacer es moverse con el anuncio. Y el anfitrión lo ve "en anuncio".
+  const gSt = await peerStatus(H, 'Invitado');
+  check('el invitado no sigue al anuncio (otra duración)', gAd.paused && (gAd.t < 0.5 || Math.abs(gAd.t - 30) < 1) && gSt === 'ad', `${fmt(gAd)} estado=${gSt}`);
+  await step('clic en play del vídeo bueno → pasa a principal y el invitado le sigue', () => clickPlay(H), (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 2000, ps: [H, G] });
+  const claimed = await waitUntil(async () => { const x = await docks(H); return x.top === 1 && x.ad === 0 ? x : null; }, 5000);
+  check('el panel pasa al frame del vídeo pulsado', !!claimed, JSON.stringify(await docks(H)));
+  await step('el anfitrión pausa (ya desde el vídeo bueno)', () => vid(H, 'v.pause()'), (h, g) => h.paused && g.paused && d(h, g) < 0.5, { ps: [H, G] });
+  await leaveAll();
+});
+
+await run('S19 el anfitrión cambia de página: mismo sitio lo siguen, otra web solo avisa', async () => {
+  await fixtures();
+  await fixtureSession(H, [G], `${FIX}/a.html`);
+  await step('sincronizados en a.html', null, (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 1500, ps: [H, G] });
+  // Mismo sitio (localhost → localhost): el invitado sigue al anfitrión
+  await openFixture(H, `${FIX}/b.html`);
+  await vid(H, 'v.currentTime = 60; v.play()');
+  const followed = await waitUntil(async () => G.page.url() === `${FIX}/b.html`, 20000);
+  check('mismo sitio: el invitado navega a b.html', !!followed, G.page.url());
+  await G.page.waitForFunction(() => document.querySelector('video')?.readyState >= 1, null, { timeout: 30000 }).catch(() => {});
+  await step('sincronizados en b.html', null, (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 1500, ps: [H, G] });
+  // Otra web (localhost → 127.0.0.1): no navega, avisa con un aviso pulsable
+  await recordToasts(G);
+  const target = `${FIX_OTHER}/b.html`;
+  await openFixture(H, target);
+  await vid(H, 'v.currentTime = 90; v.play()');
+  const toast = await waitUntil(async () => { const t = await ui(G, 'toast'); return t?.shown && /El anfitrión se ha ido a/.test(t.text) ? t : null; }, 15000);
+  clearInterval(G.toastTimer);
+  check('otra web: aviso "El anfitrión se ha ido a 127.0.0.1"', !!toast && /127\.0\.0\.1/.test(toast.text), toast?.text || JSON.stringify(G.toasts));
+  check('el aviso es pulsable', /\bclick\b/.test(toast?.className || ''), toast?.className);
+  await sleep(4000);
+  check('otra web: el invitado NO navega solo', G.page.url() === `${FIX}/b.html`, G.page.url());
+  const still = await ui(G, 'toast');
+  check('el aviso sigue a la vista', still?.shown && /se ha ido a/.test(still.text), still?.text);
+  if (still?.shown) await G.page.mouse.click(still.x, still.y);
+  const went = await waitUntil(async () => G.page.url() === target, 15000);
+  check('clic en el aviso → el invitado va a la página del anfitrión', !!went, G.page.url());
+  await G.page.waitForFunction(() => document.querySelector('video')?.readyState >= 1, null, { timeout: 30000 }).catch(() => {});
+  await step('sincronizados en la otra web', null, (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 1500, ps: [H, G] });
+  await leaveAll();
+});
+
+await run('S20 enlace de invitación (#mirrored=CÓDIGO)', async () => {
+  await fixtures();
+  await fixtureSession(H, [], `${FIX}/a.html`);
+  const hs = await status(H);
+  // Como el popup: URL de la pestaña de la sesión con el hash mirrored=CÓDIGO
+  const invite = await H.sw.evaluate(async (s) => { const u = new URL((await chrome.tabs.get(s.tabId)).url); u.hash = 'mirrored=' + s.code; return u.toString(); }, hs);
+  check('enlace de invitación', invite === `${FIX}/a.html#mirrored=${hs.code}`, invite);
+  check('el invitado no está en ninguna sesión', !(await status(G)).active);
+  G.allowNew = true;
+  const page = await G.ctx.newPage();
+  try {
+    await page.goto(invite, { waitUntil: 'domcontentloaded' });
+    const s = await waitUntil(async () => { const s = await status(G); return s.status === 'connected' ? s : null; }, 30000);
+    check('se une solo al abrir el enlace', s?.role === 'guest' && s?.code === hs.code, JSON.stringify(s && { status: s.status, role: s.role, code: s.code }));
+    const tabOk = await G.sw.evaluate(async (tabId) => (await chrome.tabs.get(tabId)).url, s?.tabId).catch(() => null);
+    check('la sesión queda en la pestaña del enlace', tabOk && !tabOk.includes('mirrored='), tabOk);
+    const hash = await waitUntil(async () => { const h = await page.evaluate(() => location.hash); return /mirrored=/.test(h) ? null : h || '(vacío)'; }, 5000);
+    check('el código se quita de la URL (replaceState)', !!hash, await page.evaluate(() => location.href));
+    check('el anfitrión ve al invitado', !!(await waitUntil(async () => (await status(H)).peers.some((p) => p.name === 'Invitado'), 8000)));
+    // Salir y provocar hashchange: no debe volver a entrar
+    await G.sw.evaluate(() => leave());
+    await sleep(800);
+    await page.evaluate(() => { location.hash = 'otra-cosa'; });
+    await page.evaluate(() => dispatchEvent(new HashChangeEvent('hashchange')));
+    await page.goBack({ waitUntil: 'commit' }).catch(() => {}); // vuelve a la entrada que tenía el código (ya limpia)
+    await sleep(3000);
+    const after = await status(G);
+    check('tras salir, un hashchange / atrás no vuelve a unir', !after.active || after.status === 'error', JSON.stringify(after));
+    check('la entrada del historial no conserva el código', !/mirrored=/.test(page.url()), page.url());
+  } finally {
+    G.allowNew = false;
+    await page.close().catch(() => {});
+  }
+  await leaveAll();
+});
+
+await run('S21 recarga de la extensión: el content script huérfano se desmonta', async () => {
+  await fixtures();
+  await fixtureSession(H, [G], `${FIX}/a.html`);
+  await step('sincronizados', null, (h, g) => playing(h) && playing(g) && d(h, g) < 1, { hold: 1500, ps: [H, G] });
+  check('el invitado tiene panel antes de recargar', !!(await ui(G, 'dock')));
+  // Errores de todos los mundos de la página (incluido el del content script) vía CDP
+  const errors = [];
+  const cdp = await G.ctx.newCDPSession(G.page);
+  cdp.on('Runtime.exceptionThrown', (e) => errors.push('exception: ' + (e.exceptionDetails.exception?.description || e.exceptionDetails.text)));
+  cdp.on('Runtime.consoleAPICalled', (e) => { if (e.type === 'error') errors.push('console: ' + e.args.map((a) => a.value ?? a.description).join(' ')); });
+  cdp.on('Log.entryAdded', (e) => { if (e.entry.level === 'error') errors.push('log: ' + e.entry.text); });
+  await cdp.send('Runtime.enable');
+  await cdp.send('Log.enable');
+  const pageErrors = [];
+  const onErr = (e) => pageErrors.push(e.message);
+  G.page.on('pageerror', onErr);
+  // Sonda: comprueba que el colector ve las excepciones no capturadas
+  await G.page.evaluate(() => setTimeout(() => { throw new Error('sonda-e2e'); }));
+  await sleep(500);
+  check('(premisa) el colector de errores funciona', errors.some((e) => /sonda-e2e/.test(e)), JSON.stringify(errors));
+  errors.length = pageErrors.length = 0;
+  const oldSw = G.sw;
+  const extId = new URL(oldSw.url()).host;
+  await oldSw.evaluate(() => chrome.runtime.reload()).catch(() => {});
+  const newSw = () => G.ctx.serviceWorkers().find((w) => w !== oldSw && w.url().includes(extId));
+  // Con --load-extension, chrome.runtime.reload() descarga la extensión pero Chromium/Brave no la vuelven
+  // a cargar (limitación del entorno de pruebas, no de Mirrored): el content script queda huérfano igual.
+  const sw = await waitUntil(async () => newSw(), 8000);
+  log('   ¿la extensión volvió a cargarse?', !!sw);
+  if (sw) G.sw = sw;
+  const gone = await waitUntil(async () => !(await ui(G, 'dock')) && !(await ui(G, 'badge')), 10000);
+  check('la interfaz de Mirrored desaparece de la página vieja', !!gone);
+  await sleep(5000);
+  await step('el vídeo se puede reproducir a mano', () => vid(G, 'v.play()'), (g) => playing(g), { ps: [G] });
+  await step('y pausar', () => vid(G, 'v.pause()'), (g) => g.paused, { ps: [G] });
+  await vid(G, 'v.currentTime = 500');
+  await sleep(2000);
+  G.page.off('pageerror', onErr);
+  await cdp.detach().catch(() => {});
+  const invalid = errors.filter((e) => /context invalidated/i.test(e));
+  check('sin errores "Extension context invalidated"', invalid.length === 0, `${invalid.length}: ${invalid.slice(0, 3).join(' | ')}`);
+  check('sin excepciones en la página', errors.filter((e) => e.startsWith('exception')).length === 0 && pageErrors.length === 0, JSON.stringify([...errors, ...pageErrors].slice(0, 5)));
+  if (sw) check('el nuevo service worker no tiene sesión', (await status(G).catch(() => null))?.active === false);
+  // Deja al invitado con la extensión funcionando para lo que venga después
+  if (sw) await G.page.reload({ waitUntil: 'domcontentloaded' });
+  else {
+    await G.ctx.close().catch(() => {});
+    G = await peer('Invitado');
+    ALL = [H, G, G2];
+  }
+  await leaveAll();
+});
+
 await leaveAll();
 console.log('\n================ RESUMEN ================');
 console.log(results.join('\n'));
@@ -540,4 +820,5 @@ const fails = results.filter((r) => r.startsWith('FAIL')).length;
 console.log(`\n${results.length - fails}/${results.length} PASS`);
 await Promise.all(ALL.map((p) => p.ctx.close().catch(() => {})));
 serverProc?.kill();
+fixServer?.close();
 process.exit(fails ? 1 : 0);

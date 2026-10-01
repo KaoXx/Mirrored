@@ -1,7 +1,7 @@
-# Ficha para la Chrome Web Store — Mirrored 0.4.0
+# Ficha para la Chrome Web Store — Mirrored 0.5.0
 
 Copia cada bloque en el campo del panel de desarrollador que indica el título.
-Paquete a subir: `store/mirrored-0.4.0.zip`.
+Paquete a subir: `store/mirrored-0.5.0.zip`.
 
 ---
 
@@ -29,7 +29,8 @@ CÓMO FUNCIONA
 QUÉ INCLUYE
 • Sincronización de play, pausa, saltos y velocidad para todos los participantes.
 • Chat y reacciones encima del vídeo, también en pantalla completa. Mientras escribes, las teclas no llegan al reproductor.
-• Estado de cada persona: sincronizada, cargando, viendo un anuncio o cuántos segundos va por detrás.
+• Estado de cada persona: sincronizada, cargando, viendo un anuncio, pendiente de pulsar play o cuántos segundos va por detrás.
+• Panel plegable y movible, para que no tape la web.
 • Espera automática: si alguien se queda cargando, se pausa a todos hasta que esté listo.
 • Siguiente episodio: cuando el anfitrión cambia de vídeo, los invitados le siguen.
 • Modo «todos controlan», para que cualquiera pueda pausar o saltar.
@@ -41,7 +42,7 @@ BUENO SABER
 • Los anuncios de cada persona pueden ser distintos: mientras alguien ve un anuncio, Mirrored no le mueve, y lo sincroniza al terminar.
 
 PRIVACIDAD
-Solo mientras estás en una sesión se envían al servidor de sincronización tu nombre, la dirección de la página del vídeo, el estado del reproductor y los mensajes de chat, y solo para compartirlos con los participantes de esa sesión. Nada se guarda en disco y todo se borra al acabar la sesión. No hay publicidad ni seguimiento.
+Mientras estás en una sesión se envían al servidor de sincronización tu nombre, la dirección de la página del vídeo, el estado del reproductor, los mensajes de chat y las reacciones, y solo para compartirlos con los participantes de esa sesión. Nada se guarda en disco y todo se borra al acabar la sesión (el proveedor de alojamiento puede registrar tu dirección IP, como cualquier servidor web). No hay publicidad ni seguimiento. Si lo prefieres, puedes usar tu propio servidor (apartado «Servidor» de la extensión).
 
 Código fuente: https://github.com/KaoXx/Mirrored
 
@@ -90,12 +91,12 @@ Mirrored tiene un único propósito: sincronizar la reproducción de un vídeo H
 
 ### Justificación del permiso `storage`
 ```
-Se usa para guardar localmente el nombre que el usuario elige, la dirección del servidor de sincronización y, durante una sesión activa, su código, para poder reconectarse si el navegador reinicia la extensión.
+Se usa para guardar localmente el nombre que el usuario elige, la dirección del servidor de sincronización, la posición del panel de chat y, durante una sesión activa, su código y un identificador de reconexión, para poder reconectarse si el navegador reinicia la extensión.
 ```
 
 ### Justificación del permiso de host (`<all_urls>`, host_permissions y content script)
 ```
-El usuario puede ver vídeos en cualquier web de vídeo, y no podemos saber de antemano cuál. El content script se inyecta en las páginas (y en sus iframes, porque muchos reproductores van dentro de uno) solo para encontrar el elemento <video>, leer y ajustar su posición, pausa y velocidad, y mostrar el chat encima del vídeo. No lee ni modifica ningún otro contenido de la página. El acceso a la URL de la pestaña se usa únicamente para compartir con los participantes de la sesión la dirección del vídeo que se está viendo y para que funcionen los enlaces de invitación (#mirrored=CÓDIGO). En páginas donde no hay una sesión activa, el script no envía nada.
+Mirrored sincroniza vídeos en cualquier web de vídeo y no es posible saber de antemano cuáles (el usuario elige la web). El content script se inyecta en todas las páginas y sus iframes porque muchos reproductores van dentro de un iframe de otro dominio, y porque los invitados se unen abriendo un enlace de invitación (#mirrored=CÓDIGO) que el script debe detectar al cargar la página sin que el usuario pulse nada; activeTab no cubre ninguno de estos dos casos. El script solo busca el elemento <video>, lee y ajusta su posición, pausa y velocidad, y muestra el chat encima. No lee ni modifica otro contenido de la página. La URL de la pestaña solo se usa durante una sesión activa, para compartir con sus participantes la página del vídeo. Fuera de una sesión, el script no envía nada a ningún servidor.
 ```
 
 ### ¿Usas código remoto?
@@ -106,7 +107,8 @@ El usuario puede ver vídeos en cualquier web de vídeo, y no podemos saber de a
 - [x] **Comunicaciones personales** — los mensajes de chat de la sesión.
 - [x] **Historial web** — la URL de la página del vídeo durante una sesión.
 - [x] **Actividad del usuario** — las acciones de reproducción (play, pausa, saltos) que se comparten con la sesión.
-- [ ] El resto (salud, finanzas, autenticación, ubicación, contenido del sitio web): **sin marcar**.
+- [x] **Ubicación** — el servidor y su proveedor de alojamiento ven la dirección IP (Google la cuenta como ubicación).
+- [ ] El resto (salud, finanzas, autenticación, contenido del sitio web): **sin marcar**.
 
 Y las tres certificaciones:
 - [x] No vendo ni transfiero los datos de los usuarios a terceros, salvo en los casos de uso aprobados.
@@ -140,7 +142,7 @@ No hace falta cuenta ni credenciales.
 
 1. Instala la extensión en dos perfiles de Chrome distintos (o en dos ordenadores).
 2. En el perfil A, abre cualquier página con un vídeo HTML5, por ejemplo https://www.w3schools.com/html/html5_video.asp, pulsa el icono de Mirrored, escribe un nombre y pulsa «Crear sesión en esta pestaña».
-   Nota: el servidor de sincronización está en un plan gratuito que se duerme tras un rato sin uso; la primera conexión puede tardar hasta un minuto en completarse («Conectando…»).
+   Nota: el servidor de sincronización está en un plan gratuito que se duerme tras un rato sin uso; la ventana de la extensión muestra «Despertando el servidor…» y, en menos de un minuto, «Servidor listo».
 3. Pulsa «Copiar enlace de invitación» y abre ese enlace en el perfil B. Se unirá automáticamente (o pulsa el icono y escribe el código de 6 letras).
 4. En el perfil A, reproduce, pausa o salta en el vídeo: el vídeo del perfil B hace lo mismo.
 5. Abajo a la derecha del vídeo aparecen el chat (💬) y las reacciones.

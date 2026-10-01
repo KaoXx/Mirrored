@@ -25,8 +25,10 @@ async function init() {
 // Los servidores gratuitos (Render) se duermen: los despertamos en cuanto se abre el popup y
 // mostramos cuándo están listos, para que nadie cree una sesión creyendo que no funciona.
 let wakeTimer = null;
+let wakeGen = 0; // si cambia la URL, el sondeo anterior (quizá esperando un fetch) se descarta
 function wakeServer(url) {
   clearTimeout(wakeTimer);
+  const gen = ++wakeGen;
   const started = Date.now();
   const show = (cls, text) => {
     $('serverState').className = 'muted ' + cls;
@@ -38,6 +40,7 @@ function wakeServer(url) {
       const r = await fetch(url.replace(/^ws/, 'http') + '/health', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
       ok = r.ok && (await r.json()).ok === true;
     } catch {}
+    if (gen !== wakeGen) return;
     if (ok) return show('ready', 'Servidor listo');
     const secs = Math.round((Date.now() - started) / 1000);
     if (secs > 120) return show('down', 'El servidor no responde. Revisa la URL en «Servidor».');
@@ -54,12 +57,15 @@ async function saveSettings() {
   });
 }
 
+let sessionError = ''; // solo borramos #error si lo puso refresh (no los avisos de los botones)
 async function refresh() {
-  const st = await chrome.runtime.sendMessage({ type: 'status' });
+  const st = (await chrome.runtime.sendMessage({ type: 'status' }).catch(() => null)) || { active: false };
   const live = st.active && st.status !== 'error';
   $('idle').classList.toggle('hidden', live);
   $('live').classList.toggle('hidden', !live);
-  $('error').textContent = st.active && st.status === 'error' ? st.error || 'Error de conexión.' : '';
+  const err = st.active && st.status === 'error' ? st.error || 'Error de conexión.' : '';
+  if (err || sessionError) $('error').textContent = err;
+  sessionError = err;
   if (!live) return;
 
   const role = st.role === 'host' ? 'Eres el anfitrión' : st.role === 'guest' ? 'Eres invitado' : '';
@@ -87,7 +93,9 @@ function peerItem(p) {
   li.textContent = p.name + (p.host ? ' (anfitrión)' : '');
   const [label, cls] = PEER_STATUS[p.status] || [];
   if (p.status && !p.host) {
-    const text = p.status === 'behind' ? `${Math.abs(p.drift).toFixed(0)} s ${p.drift < 0 ? 'por detrás' : 'por delante'}` : label;
+    const behind = p.status === 'behind';
+    const text = !behind ? label
+      : Number.isFinite(p.drift) ? `${Math.abs(p.drift).toFixed(0)} s ${p.drift < 0 ? 'por detrás' : 'por delante'}` : 'desincronizado';
     li.append(' · ', Object.assign(document.createElement('span'), { textContent: text, className: cls }));
   }
   return li;
@@ -103,25 +111,41 @@ function samePage(a, b) {
   }
 }
 
-$('create').onclick = async () => {
+// Evita dobles clics: desactiva Crear/Unirme mientras la petición está en curso.
+async function busy(fn) {
+  $('create').disabled = $('join').disabled = true;
+  try {
+    await fn();
+  } finally {
+    $('create').disabled = $('join').disabled = false;
+  }
+  refresh();
+}
+
+$('create').onclick = () => {
   if (!/^https?:/.test(currentTab?.url || '')) {
     $('error').textContent = 'Abre primero la página del vídeo en esta pestaña.';
     return;
   }
-  await saveSettings();
-  await chrome.runtime.sendMessage({ type: 'create', tabId: currentTab.id, allControl: $('allControlNew').checked });
-  refresh();
+  $('error').textContent = '';
+  busy(async () => {
+    await saveSettings();
+    await chrome.runtime.sendMessage({ type: 'create', tabId: currentTab.id, allControl: $('allControlNew').checked });
+  });
 };
 
-$('join').onclick = async () => {
+$('join').onclick = () => {
+  if ($('join').disabled) return; // Enter en el campo del código
   const code = $('code').value.trim().toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(code)) {
     $('error').textContent = 'El código tiene 6 caracteres.';
     return;
   }
-  await saveSettings();
-  await chrome.runtime.sendMessage({ type: 'join', tabId: currentTab.id, code });
-  refresh();
+  $('error').textContent = '';
+  busy(async () => {
+    await saveSettings();
+    await chrome.runtime.sendMessage({ type: 'join', tabId: currentTab.id, code });
+  });
 };
 
 $('code').addEventListener('keydown', (e) => e.key === 'Enter' && $('join').click());
@@ -136,9 +160,16 @@ $('allControl').onchange = (e) => chrome.runtime.sendMessage({ type: 'set-all-co
 $('goHost').onclick = () => chrome.runtime.sendMessage({ type: 'go-to-host' });
 
 $('copyLink').onclick = async () => {
-  const st = await chrome.runtime.sendMessage({ type: 'status' });
-  const tab = await chrome.tabs.get(st.tabId);
-  const u = new URL(tab.url);
+  let st, u;
+  try {
+    st = await chrome.runtime.sendMessage({ type: 'status' });
+    const tab = await chrome.tabs.get(st.tabId);
+    u = new URL(tab.url);
+    if (!/^https?:$/.test(u.protocol) || !st.code) throw new Error();
+  } catch {
+    $('error').textContent = 'No se puede crear el enlace: la pestaña de la sesión no está en una página web.';
+    return;
+  }
   u.hash = 'mirrored=' + st.code;
   try {
     await navigator.clipboard.writeText(`${u}\n(o únete con el código ${st.code})`);

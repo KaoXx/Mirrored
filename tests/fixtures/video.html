@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mirrored fixture: vídeo</title>
+<style>
+  body { margin: 0; padding: 16px; font: 14px system-ui, sans-serif; background: #111; color: #eee; }
+  #main { width: 800px; height: 450px; background: #000; display: block; }
+  iframe { width: 340px; height: 200px; border: 0; display: block; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1 id="title"></h1>
+<!-- Vídeo principal: sin autoplay, se maneja desde la prueba -->
+<video id="main" controls preload="auto" playsinline src="/main.webm"></video>
+<script>
+  // Página de pruebas de Mirrored (tests/e2e.mjs). Parámetros:
+  //   ?ad=1    iframe de OTRO origen (localhost <-> 127.0.0.1) con un "anuncio" pequeño, silenciado, en
+  //            autoplay y en bucle (mismo vídeo que el principal).
+  //   ?ad=big  el iframe lleva un anuncio grande, con sonido y corto (otro vídeo), que puntúa más que el
+  //            vídeo principal (que se hace pequeño): solo un clic de la persona hace principal al bueno.
+  document.getElementById('title').textContent = location.host + location.pathname;
+  const ad = new URLSearchParams(location.search).get('ad');
+  if (ad) {
+    const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+    const f = document.createElement('iframe');
+    f.src = `http://${other}:${location.port}/ad.html${ad === 'big' ? '?big=1' : ''}`;
+    if (ad === 'big') {
+      Object.assign(document.getElementById('main').style, { width: '320px', height: '180px' });
+      Object.assign(f.style, { width: '1220px', height: '695px' });
+    }
+    document.body.append(f);
+  }
+</script>
+</body>
+</html>

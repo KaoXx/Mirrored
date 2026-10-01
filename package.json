@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node tests/e2e.mjs",
     "test:local": "node tests/e2e.mjs --local",
+    "test:server": "node tests/server.mjs",
     "zip": "node scripts/build-zip.mjs"
   },
   "devDependencies": {

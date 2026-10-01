@@ -7,15 +7,20 @@ que lo están viendo cada una en su propio navegador. Esta política explica qu�
 
 ## Qué datos se envían al servidor de sincronización
 
-Solo mientras participas en una sesión, la extensión envía al servidor de Mirrored
+Mientras participas en una sesión, la extensión envía al servidor de Mirrored
 (`mirrored-server.onrender.com`, o el servidor que tú configures):
 
 - **El nombre que escribes** en la extensión, para que los demás participantes sepan quién eres.
-- **La dirección (URL) de la página del vídeo** de quien controla la sesión, para que los demás puedan
-  abrir la misma página.
+- **La dirección (URL) de la página del vídeo** del anfitrión y, si está activado «Todos pueden pausar y
+  saltar», la de cualquier participante que pause o salte, para que los demás puedan abrir la misma página.
+  Antes de enviarla se eliminan el fragmento `#mirrored=…` y los parámetros que suelen llevar credenciales
+  (`token`, `access_token`, `id_token`, `auth_token`).
 - **El estado del reproductor:** posición, pausa/reproducción, velocidad y duración del vídeo, y si
-  estás sincronizado, cargando o viendo un anuncio.
+  estás sincronizado, cargando, viendo un anuncio o tienes que pulsar play.
 - **Los mensajes de chat y las reacciones** que envías en la sesión.
+
+Además, al abrir la ventana de la extensión se hace una petición a `/health` del servidor para comprobar si
+está despierto. No incluye ningún dato tuyo (solo llega, como en cualquier conexión, tu dirección IP).
 
 ## Cómo se guardan
 
@@ -25,14 +30,15 @@ Solo mientras participas en una sesión, la extensión envía al servidor de Mir
 - Los datos solo se envían a los demás participantes de tu sesión, que conocen su código.
 - **No se venden ni se comparten con terceros**, no se usan para publicidad ni para crear perfiles, y
   no se usan para ningún fin distinto de la sincronización.
-- La conexión con el servidor está cifrada (WSS/HTTPS).
+- La conexión con el servidor por defecto está cifrada (WSS/HTTPS); si configuras otro servidor, depende de él.
 - Como cualquier servidor de internet, el de Mirrored y su proveedor de alojamiento (Render) reciben la
   dirección IP desde la que te conectas y pueden conservarla en sus registros técnicos.
 
 ## Qué se guarda en tu navegador
 
 La extensión guarda localmente, con el almacenamiento de extensiones del navegador:
-tu nombre, la dirección del servidor y, durante una sesión, su código para poder reconectarte.
+tu nombre, la dirección del servidor, la posición del panel de chat y, durante una sesión, su código y un
+identificador de reconexión para poder volver a entrar si se corta la conexión.
 Nada de esto sale de tu navegador salvo en los casos descritos arriba.
 
 ## Lo que la extensión no hace

@@ -48,10 +48,16 @@ Ejemplo en PowerShell: `$env:ONLY='S9,S13'; npm run test:local`.
 - **S15** Descarga colgada (la petición del vídeo no responde ni falla): el invitado reintenta solo y se sincroniza.
 - **S16** Panel: clic en el indicador lo pliega, arrastrarlo lo mueve, la posición se recuerda; el aviso enmarca el vídeo.
 - **S17** Estado `needclick`: el anfitrión ve "1 sin pulsar play" y el invitado "Pulsa play en el vídeo".
+- **S18** Iframes: con un "anuncio" en autoplay dentro de un iframe de otro origen, solo el frame principal muestra el panel y sincroniza; el anuncio ni mueve al invitado ni es controlado. Sin el vídeo principal, el panel pasa al iframe; y si un anuncio grande gana la elección, pulsar play en el vídeo bueno lo reclama.
+- **S19** El anfitrión cambia de página: dentro del mismo sitio el invitado le sigue solo; si se va a otra web (localhost → 127.0.0.1) el invitado no navega, ve el aviso pulsable "El anfitrión se ha ido a…" y al pulsarlo va allí.
+- **S20** Enlace de invitación `#mirrored=CÓDIGO`: al abrirlo se une solo como invitado, el código desaparece de la URL y, tras salir, un `hashchange` o volver atrás no le vuelve a unir.
+- **S21** Recarga de la extensión con sesión activa: el content script huérfano quita su interfaz, no lanza errores "Extension context invalidated" y el vídeo sigue funcionando a mano.
+
+S18–S21 usan páginas propias (`tests/fixtures/`) que la prueba sirve en `http://localhost:8801` y `http://127.0.0.1:8801` (dos orígenes distintos), con vídeos locales (`main.webm`, `short.webm`; se regeneran con `node tests/fixtures/make-videos.mjs`). Con `--load-extension`, `chrome.runtime.reload()` descarga la extensión sin volver a cargarla, así que S21 relanza después el navegador del invitado.
 
 ## Avisos
 
-Depende de que laisla.wtf y archive.org (de donde sale el mp4) estén accesibles. Con la red inestable pueden salir fallos esporádicos de buffering o de sincronía; si un escenario falla suelto, repítelo con `ONLY=` antes de darlo por roto.
+S1–S17 dependen de que laisla.wtf y archive.org (de donde sale su mp4) estén accesibles; S18–S21 solo necesitan el puerto 8801 libre. Con la red inestable pueden salir fallos esporádicos de buffering o de sincronía; si un escenario falla suelto, repítelo con `ONLY=` antes de darlo por roto.
 
 ## Empaquetar para la tienda
 

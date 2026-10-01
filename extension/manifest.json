@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Mirrored: vídeo sincronizado en grupo",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Reproduce vídeos en perfecta sincronía con otras personas, cada una desde su navegador. Con chat, reacciones y control compartido.",
   "minimum_chrome_version": "116",
+  "homepage_url": "https://github.com/KaoXx/Mirrored",
   "permissions": ["storage"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
